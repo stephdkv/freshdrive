@@ -79,8 +79,8 @@ class RentalApplication(models.Model):
                     'rental_start_date': 'Дата начала аренды не может быть в прошлом'
                 })
             
-            # Проверка доступности транспорта
-            if self.transport:
+            # Проверка доступности транспорта только если он выбран
+            if hasattr(self, 'transport_id') and self.transport_id:
                 is_available, message = self.transport.check_availability(
                     self.rental_start_date,
                     self.rental_end_date,

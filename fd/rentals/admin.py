@@ -1,7 +1,8 @@
 from django.contrib import admin
 from django.conf import settings
 from .models import Transport, RentalApplication
-from django.http import HttpResponse
+from .forms import RentalApplicationForm
+from django.http import HttpResponse, JsonResponse
 from docx import Document
 from django.template.defaultfilters import date as _date
 import io
@@ -29,6 +30,7 @@ class TransportAdmin(admin.ModelAdmin):
 
 @admin.register(RentalApplication)
 class RentalApplicationAdmin(admin.ModelAdmin):
+    form = RentalApplicationForm
     list_display = ('full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
                    'get_daily_rate_display', 'get_total_cost_display', 'get_security_deposit_display')
@@ -42,7 +44,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'fields': ('full_name', 'phone_number')
         }),
         ('Детали аренды', {
-            'fields': ('rental_start_date', 'rental_end_date', 'transport',  'security_deposit')
+            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit')
         }),
         ('Паспортные данные', {
             'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date')
@@ -105,6 +107,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'daily_rate': application.get_daily_rate(),
             'total_cost': application.calculate_total_cost(),
             'security_deposit': int(application.security_deposit),
+            'today_date': datetime.now().strftime("%d.%m.%Y"),
         }
 
         # Проходим по всем параграфам и таблицам, сохраняя форматирование
@@ -133,8 +136,29 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         f = io.BytesIO()
         doc.save(f)
         f.seek(0)
+        
+        # Формируем имя файла
+        filename = f"Договор аренды - {application.full_name} от {datetime.now().strftime('%d.%m.%Y')}.docx"
+        # Кодируем имя файла для корректного отображения русских букв
+        encoded_filename = filename.encode('utf-8').decode('latin-1')
+        
         response = HttpResponse(f.read(), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-        response['Content-Disposition'] = f'attachment; filename="Договор аренды - {application.full_name}.docx"'
+        response['Content-Disposition'] = f'attachment; filename="{encoded_filename}"'
         return response
 
     generate_contract.short_description = "Печать договора аренды"
+
+    class Media:
+        css = {
+            'all': (
+                'admin/css/forms.css',
+                'admin/css/widgets.css',
+            )
+        }
+        js = (
+            'admin/js/jquery.init.js',
+            'admin/js/core.js',
+            'admin/js/calendar.js',
+            'admin/js/admin/DateTimeShortcuts.js',
+            'rentals/js/rental_form.js',
+        )

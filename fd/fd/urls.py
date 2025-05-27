@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth.models import User, Group
+from django.views.i18n import JavaScriptCatalog
 
 admin.site.unregister(User)
 admin.site.unregister(Group)
@@ -29,4 +30,5 @@ admin.site.index_title = 'Добро пожаловать в портал аре
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('rentals/', include('rentals.urls')),
+    path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),
 ]
