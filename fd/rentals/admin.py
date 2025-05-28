@@ -11,6 +11,7 @@ from django.core.exceptions import PermissionDenied
 import io
 import os
 from datetime import datetime
+from django.utils.html import format_html
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -77,14 +78,15 @@ def create_manager_group():
 
 @admin.register(Transport)
 class TransportAdmin(admin.ModelAdmin):
-    list_display = ('name', 'model', 'year', 'color', 'registration_number', 'vin_number',
+    list_display = ('number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number',
                    'price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days')
-    search_fields = ('name', 'model', 'registration_number', 'color', 'vin_number')
+    search_fields = ('number', 'name', 'model', 'registration_number', 'color', 'vin_number')
     list_filter = ('year',)
+    ordering = ('number',)
     
     fieldsets = (
         ('Основная информация', {
-            'fields': ('name', 'model', 'year', 'color', 'registration_number', 'vin_number')
+            'fields': ('number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number')
         }),
         ('Цены', {
             'fields': ('price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days')
@@ -103,10 +105,10 @@ class TransportAdmin(admin.ModelAdmin):
 @admin.register(RentalApplication)
 class RentalApplicationAdmin(admin.ModelAdmin):
     form = RentalApplicationForm
-    list_display = ('full_name', 'phone_number', 'transport', 'rental_start_date', 
+    list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
                    'get_daily_rate_display', 'get_total_cost_display', 'get_security_deposit_display')
-    list_filter = ('rental_start_date', 'rental_end_date', 'created_at')
+    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
@@ -116,7 +118,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'fields': ('full_name', 'phone_number')
         }),
         ('Детали аренды', {
-            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit')
+            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'status')
         }),
         ('Паспортные данные', {
             'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date')
@@ -151,7 +153,22 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return f"{int(obj.security_deposit):,} ₽"
     get_security_deposit_display.short_description = 'Обеспечительный платеж'
     
-    actions = ['generate_contract']
+    def make_active(self, request, queryset):
+        for application in queryset:
+            application.change_status(RentalApplication.STATUS_ACTIVE)
+    make_active.short_description = "Сделать активными"
+
+    def make_completed(self, request, queryset):
+        for application in queryset:
+            application.change_status(RentalApplication.STATUS_COMPLETED)
+    make_completed.short_description = "Отметить как завершенные"
+
+    def make_cancelled(self, request, queryset):
+        for application in queryset:
+            application.change_status(RentalApplication.STATUS_CANCELLED)
+    make_cancelled.short_description = "Отметить как отмененные"
+
+    actions = ['generate_contract', 'make_active', 'make_completed', 'make_cancelled']
 
     def generate_contract(self, request, queryset):
         # Проверяем права на генерацию договора
@@ -248,11 +265,27 @@ class RentalApplicationAdmin(admin.ModelAdmin):
 
     generate_contract.short_description = "Печать договора аренды"
 
+    def get_colored_status(self, obj):
+        status_classes = {
+            'reserved': 'status-reserved',
+            'active': 'status-active',
+            'completed': 'status-completed',
+            'cancelled': 'status-cancelled',
+        }
+        return format_html(
+            '<span class="status-badge {}">{}</span>',
+            status_classes[obj.status],
+            obj.get_status_display()
+        )
+    get_colored_status.short_description = 'Статус'
+    get_colored_status.admin_order_field = 'status'
+
     class Media:
         css = {
             'all': (
                 'admin/css/forms.css',
                 'admin/css/widgets.css',
+                'rentals/css/admin.css',
             )
         }
         js = (

@@ -61,7 +61,7 @@ def get_available_transport(request):
         transport_options = [
             {
                 'id': t.id,
-                'text': f"{t.name} {t.model} ({t.vin_number})"
+                'text': f"№{t.number} {t.name} {t.model} ({t.vin_number})"
             }
             for t in available_transport
         ]
