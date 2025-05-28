@@ -9,7 +9,7 @@ class Transport(models.Model):
     model = models.CharField('Модель', max_length=200)
     year = models.IntegerField('Год выпуска')
     color = models.CharField('Цвет', max_length=50, null=True, blank=True)
-    registration_number = models.CharField('Регистрационный номер', max_length=50)
+    registration_number = models.CharField('Регистрационный номер', max_length=50,  null=True, blank=True)
     vin_number = models.CharField('VIN номер', max_length=17, help_text="17-значный идентификационный номер транспортного средства", default=0, null=True)
     price_per_day = models.DecimalField('Цена за сутки', max_digits=10, decimal_places=2, default=0)
     price_3_6_days = models.DecimalField('Цена за 3-6 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
@@ -53,7 +53,7 @@ class Transport(models.Model):
 
 class RentalApplication(models.Model):
     full_name = models.CharField('ФИО', max_length=200, help_text="Полное имя арендатора")
-    phone_number = PhoneNumberField('Телефон', help_text="Контактный номер телефона")
+    phone_number = PhoneNumberField('Телефон', help_text="Контактный номер телефона. Без +")
     rental_start_date = models.DateField('Дата начала аренды', help_text="Дата начала аренды")
     rental_end_date = models.DateField('Дата окончания аренды', help_text="Дата окончания аренды")
     passport_number = models.CharField('Номер паспорта', max_length=50, help_text="Номер паспорта")

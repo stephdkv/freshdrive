@@ -5,12 +5,75 @@ from .forms import RentalApplicationForm
 from django.http import HttpResponse, JsonResponse
 from docx import Document
 from django.template.defaultfilters import date as _date
+from django.contrib.auth.models import Group, Permission, User
+from django.contrib.auth.admin import UserAdmin
+from django.core.exceptions import PermissionDenied
 import io
 import os
 from datetime import datetime
 
+# Отменяем регистрацию стандартного UserAdmin
+admin.site.unregister(User)
+
+@admin.register(User)
+class CustomUserAdmin(UserAdmin):
+    list_display = ('username', 'email', 'first_name', 'last_name', 'is_staff', 'get_groups')
+    list_filter = ('is_staff', 'is_superuser', 'groups')
+    
+    def get_groups(self, obj):
+        return ", ".join([group.name for group in obj.groups.all()])
+    get_groups.short_description = "Группы"
+
+    def get_fieldsets(self, request, obj=None):
+        if not obj:
+            return self.add_fieldsets
+            
+        if request.user.is_superuser:
+            return (
+                (None, {'fields': ('username', 'password')}),
+                ('Персональная информация', {'fields': ('first_name', 'last_name', 'email')}),
+                ('Права доступа', {
+                    'fields': ('is_active', 'is_staff', 'is_superuser', 'groups'),
+                }),
+            )
+        return (
+            (None, {'fields': ('username', 'password')}),
+            ('Персональная информация', {'fields': ('first_name', 'last_name', 'email')}),
+            ('Права доступа', {
+                'fields': ('is_active', 'groups'),
+            }),
+        )
+
+    def get_readonly_fields(self, request, obj=None):
+        if not request.user.is_superuser:
+            return ('is_staff', 'is_superuser', 'user_permissions')
+        return super().get_readonly_fields(request, obj)
+
+# Отменяем регистрацию стандартного GroupAdmin, так как он нам не нужен
+admin.site.unregister(Group)
+
 template_path = os.path.join(settings.BASE_DIR, 'rentals', 'templates', 'contracts', 'rental_contract_template.docx')
 doc = Document(template_path)
+
+def create_manager_group():
+    """Создает группу менеджеров с необходимыми правами если она не существует"""
+    group, created = Group.objects.get_or_create(name='Manager')
+    if created:
+        # Права для Transport
+        transport_permissions = Permission.objects.filter(
+            content_type__app_label='rentals',
+            content_type__model='transport',
+            codename__in=['view_transport']
+        )
+        # Права для RentalApplication
+        rental_permissions = Permission.objects.filter(
+            content_type__app_label='rentals',
+            content_type__model='rentalapplication',
+            codename__in=['add_rentalapplication', 'change_rentalapplication', 'view_rentalapplication']
+        )
+        
+        # Добавляем все разрешения в группу
+        group.permissions.set(list(transport_permissions) + list(rental_permissions))
 
 @admin.register(Transport)
 class TransportAdmin(admin.ModelAdmin):
@@ -27,6 +90,15 @@ class TransportAdmin(admin.ModelAdmin):
             'fields': ('price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days')
         }),
     )
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 @admin.register(RentalApplication)
 class RentalApplicationAdmin(admin.ModelAdmin):
@@ -51,6 +123,14 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         }),
     )
 
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:  # editing an existing object
+            return ('created_at', 'updated_at')
+        return ()
+
     def get_rental_days_display(self, obj):
         return f"{obj.get_rental_days()} дн."
     get_rental_days_display.short_description = 'Срок аренды'
@@ -73,12 +153,11 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     
     actions = ['generate_contract']
 
-    def get_readonly_fields(self, request, obj=None):
-        if obj:  # editing an existing object
-            return ('created_at', 'updated_at')
-        return () 
-
     def generate_contract(self, request, queryset):
+        # Проверяем права на генерацию договора
+        if not (request.user.is_superuser or request.user.groups.filter(name='Manager').exists()):
+            raise PermissionDenied("У вас нет прав на генерацию договора")
+
         if queryset.count() != 1:
             self.message_user(request, "Выберите одну заявку для генерации договора.", level='error')
             return
@@ -110,27 +189,48 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'today_date': datetime.now().strftime("%d.%m.%Y"),
         }
 
-        # Проходим по всем параграфам и таблицам, сохраняя форматирование
+        # Проходим по всем параграфам
         for paragraph in doc.paragraphs:
-            for run in paragraph.runs:
-                text = run.text
-                for key, value in context.items():
-                    placeholder = f"{{{{ {key} }}}}"
-                    if placeholder in text:
-                        # Сохраняем форматирование, заменяя только текст
-                        run.text = text.replace(placeholder, str(value))
+            # Получаем текст всего параграфа
+            text = paragraph.text
+            # Проверяем, есть ли в параграфе плейсхолдеры
+            for key, value in context.items():
+                placeholder = f"{{{{ {key} }}}}"
+                if placeholder in text:
+                    # Заменяем плейсхолдер на значение
+                    text = text.replace(placeholder, str(value))
+            
+            # Если были замены, обновляем текст параграфа
+            if text != paragraph.text:
+                # Очищаем параграф
+                for run in paragraph.runs:
+                    run.text = ""
+                # Добавляем новый текст с сохранением форматирования первого run
+                if paragraph.runs:
+                    paragraph.runs[0].text = text
+                else:
+                    paragraph.add_run(text)
 
         # Обработка таблиц
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
                     for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            text = run.text
-                            for key, value in context.items():
-                                placeholder = f"{{{{ {key} }}}}"
-                                if placeholder in text:
-                                    run.text = text.replace(placeholder, str(value))
+                        text = paragraph.text
+                        for key, value in context.items():
+                            placeholder = f"{{{{ {key} }}}}"
+                            if placeholder in text:
+                                text = text.replace(placeholder, str(value))
+                        
+                        if text != paragraph.text:
+                            # Очищаем параграф
+                            for run in paragraph.runs:
+                                run.text = ""
+                            # Добавляем новый текст с сохранением форматирования первого run
+                            if paragraph.runs:
+                                paragraph.runs[0].text = text
+                            else:
+                                paragraph.add_run(text)
 
         # Сохранение во временный файл и отдача пользователю
         f = io.BytesIO()

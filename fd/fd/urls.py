@@ -19,8 +19,8 @@ from django.urls import path, include
 from django.contrib.auth.models import User, Group
 from django.views.i18n import JavaScriptCatalog
 
-admin.site.unregister(User)
-admin.site.unregister(Group)
+# admin.site.unregister(User)
+# admin.site.unregister(Group)
 
 
 admin.site.site_header = 'Администрирование транспортной аренды'

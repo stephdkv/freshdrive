@@ -5,8 +5,8 @@ from datetime import datetime
 from django.contrib.admin.widgets import AdminDateWidget
 
 class RentalApplicationForm(forms.ModelForm):
-    rental_start_date = forms.DateField(widget=AdminDateWidget())
-    rental_end_date = forms.DateField(widget=AdminDateWidget())
+    rental_start_date = forms.DateField(widget=AdminDateWidget(), help_text="Дата начала аренды", label='Дата начала аренды')
+    rental_end_date = forms.DateField(widget=AdminDateWidget(), help_text="Дата окончания аренды", label='Дата окончания аренды')
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
