@@ -95,10 +95,10 @@ class RentalApplication(models.Model):
                     'rental_end_date': 'Дата окончания аренды не может быть раньше даты начала'
                 })
             
-            if self.rental_start_date < datetime.now().date():
-                raise ValidationError({
-                    'rental_start_date': 'Дата начала аренды не может быть в прошлом'
-                })
+            # if self.rental_start_date < datetime.now().date():
+            #     raise ValidationError({
+            #         'rental_start_date': 'Дата начала аренды не может быть в прошлом'
+            #     })
             
             # Проверка доступности транспорта только если он выбран
             if hasattr(self, 'transport_id') and self.transport_id:

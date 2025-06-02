@@ -195,7 +195,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'passport_issue_date': _date(application.passport_issue_date, "d.m.Y"),
             'rental_start_date': _date(application.rental_start_date, "d.m.Y"),
             'rental_end_date': _date(application.rental_end_date, "d.m.Y"),
-            'transport_model': f"{transport.name} {transport.model}",
+            'transport_model': f"№{transport.number} - {transport.name} {transport.model}",
             'registration_number': transport.registration_number,
             'vin_number': transport.vin_number,
             'rental_days': application.get_rental_days(),
