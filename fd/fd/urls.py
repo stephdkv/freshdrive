@@ -28,6 +28,7 @@ admin.site.site_title = 'Портал администрирования аре�
 admin.site.index_title = 'Добро пожаловать в портал аренды транспорта'
 
 urlpatterns = [
+    path('jet/', include('jet.urls', 'jet')),  # Django Jet URLs
     path('admin/', admin.site.urls),
     path('rentals/', include('rentals.urls')),
     path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),

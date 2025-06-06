@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.conf import settings
-from .models import Transport, RentalApplication
+from .models import Transport, RentalApplication, Client
 from .forms import RentalApplicationForm
 from django.http import HttpResponse, JsonResponse
 from docx import Document
@@ -8,6 +8,7 @@ from django.template.defaultfilters import date as _date
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.admin import UserAdmin
 from django.core.exceptions import PermissionDenied
+from django.db.models import Sum
 import io
 import os
 from datetime import datetime
@@ -107,7 +108,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     form = RentalApplicationForm
     list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
-                   'get_daily_rate_display', 'get_total_cost_display', 'get_security_deposit_display')
+                   'get_daily_rate_display', 'get_security_deposit_display', 'get_total_cost_display')
     list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
@@ -280,6 +281,30 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     get_colored_status.short_description = 'Статус'
     get_colored_status.admin_order_field = 'status'
 
+    def changelist_view(self, request, extra_context=None):
+        # Get the filtered queryset
+        response = super().changelist_view(request, extra_context=extra_context)
+        
+        try:
+            # Get the filtered queryset
+            qs = response.context_data['cl'].queryset
+            
+            # Calculate totals
+            total_cost = sum(app.calculate_total_cost() for app in qs)
+            total_security_deposit = sum(int(app.security_deposit or 0) for app in qs)
+            total_days = sum(app.get_rental_days() for app in qs)
+            
+            # Add totals to the context
+            response.context_data['total_cost'] = f"{total_cost:,} ₽"
+            response.context_data['total_security_deposit'] = f"{total_security_deposit:,} ₽"
+            response.context_data['total_days'] = f"{total_days} дн."
+            
+        except (AttributeError, KeyError):
+            # If there's an error, just return the response without totals
+            return response
+            
+        return response
+
     class Media:
         css = {
             'all': (
@@ -295,3 +320,84 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'admin/js/admin/DateTimeShortcuts.js',
             'rentals/js/rental_form.js',
         )
+
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ('full_name', 'phone_number', 'get_rental_count', 'get_last_rental_date', 'created_at')
+    search_fields = ('full_name', 'phone_number')
+    ordering = ('phone_number',)
+    
+    def get_rental_count(self, obj):
+        return obj.rental_applications.count()
+    get_rental_count.short_description = 'Количество заявок'
+    
+    def get_last_rental_date(self, obj):
+        last_rental = obj.rental_applications.order_by('-rental_start_date').first()
+        if last_rental:
+            return last_rental.rental_start_date
+        return '-'
+    get_last_rental_date.short_description = 'Последняя аренда'
+
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('full_name', 'phone_number')
+        }),
+        ('История заявок', {
+            'fields': ('get_rental_history',),
+            'classes': ('collapse',)
+        }),
+    )
+    readonly_fields = ('get_rental_history',)
+
+    def get_rental_history(self, obj):
+        rentals = obj.rental_applications.all().order_by('-rental_start_date')
+        if not rentals:
+            return "Нет заявок"
+        
+        html = '<table style="width: 100%; border-collapse: collapse;">'
+        html += '''
+            <tr style="background-color: #f8f9fa;">
+                <th style="padding: 8px; border: 1px solid #ddd;">Статус</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Транспорт</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Период</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Сумма</th>
+                <th style="padding: 8px; border: 1px solid #ddd;">Действия</th>
+            </tr>
+        '''
+        
+        for rental in rentals:
+            status_class = {
+                'reserved': 'status-reserved',
+                'active': 'status-active',
+                'completed': 'status-completed',
+                'cancelled': 'status-cancelled',
+            }.get(rental.status, '')
+            
+            html += f'''
+                <tr>
+                    <td style="padding: 8px; border: 1px solid #ddd;">
+                        <span class="status-badge {status_class}">{rental.get_status_display()}</span>
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">{rental.transport}</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">
+                        {rental.rental_start_date.strftime('%d.%m.%Y')} - {rental.rental_end_date.strftime('%d.%m.%Y')}
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">{rental.calculate_total_cost():,} ₽</td>
+                    <td style="padding: 8px; border: 1px solid #ddd;">
+                        <a href="/admin/rentals/rentalapplication/{rental.id}/change/" class="button" style="padding: 5px 10px; background: #417690; color: white; text-decoration: none; border-radius: 4px;">Просмотр</a>
+                    </td>
+                </tr>
+            '''
+        
+        html += '</table>'
+        return format_html(html)
+    get_rental_history.short_description = 'История заявок'
+
+    class Media:
+        css = {
+            'all': (
+                'admin/css/forms.css',
+                'admin/css/widgets.css',
+                'rentals/css/admin.css',
+            )
+        }

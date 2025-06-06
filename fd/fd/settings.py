@@ -32,6 +32,7 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'jet',  # Django Jet
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -51,6 +52,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# Django Jet settings
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+JET_SIDE_MENU_COMPACT = True
+JET_CHANGE_FORM_SIBLING_LINKS = True
+JET_INDEX_DASHBOARD = 'dashboard.CustomIndexDashboard'
+JET_APP_INDEX_DASHBOARD = 'dashboard.CustomAppIndexDashboard'
+JET_MODULE_INDEX_DASHBOARD = 'dashboard.CustomModuleIndexDashboard'
 
 ROOT_URLCONF = 'fd.urls'
 

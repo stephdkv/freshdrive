@@ -4,6 +4,20 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
+class Client(models.Model):
+    full_name = models.CharField('ФИО', max_length=200)
+    phone_number = PhoneNumberField('Телефон', unique=True)
+    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
+    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+
+    def __str__(self):
+        return f"{self.full_name} ({self.phone_number})"
+
+    class Meta:
+        verbose_name = "Клиент"
+        verbose_name_plural = "Клиенты"
+        ordering = ['phone_number']
+
 class Transport(models.Model):
     number = models.PositiveIntegerField('Номер', help_text="Порядковый номер транспорта", null=True, blank=True)
     name = models.CharField('Название', max_length=200)
@@ -66,6 +80,7 @@ class RentalApplication(models.Model):
         (STATUS_CANCELLED, 'Отмененная'),
     ]
 
+    client = models.ForeignKey(Client, verbose_name='Клиент', on_delete=models.PROTECT, related_name='rental_applications', null=True, blank=True)
     full_name = models.CharField('ФИО', max_length=200, help_text="Полное имя арендатора")
     phone_number = PhoneNumberField('Телефон', help_text="Контактный номер телефона.")
     rental_start_date = models.DateField('Дата начала аренды', help_text="Дата начала аренды")
@@ -113,6 +128,13 @@ class RentalApplication(models.Model):
                     })
     
     def save(self, *args, **kwargs):
+        # Создаем или находим клиента при сохранении заявки
+        if not self.client:
+            client, created = Client.objects.get_or_create(
+                phone_number=self.phone_number,
+                defaults={'full_name': self.full_name}
+            )
+            self.client = client
         self.clean()
         super().save(*args, **kwargs)
     
