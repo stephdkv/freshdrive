@@ -136,7 +136,35 @@ class RentalApplication(models.Model):
             )
             self.client = client
         self.clean()
+        
+        # Создаем или обновляем событие в календаре
+        is_new = self.pk is None
         super().save(*args, **kwargs)
+        
+        # Создаем или обновляем событие в календаре
+        calendar_event, created = Calendar.objects.get_or_create(
+            rental_application=self,
+            defaults={
+                'transport': self.transport,
+                'title': f"Аренда: {self.full_name}",
+                'start': datetime.combine(self.rental_start_date, datetime.min.time()),
+                'end': datetime.combine(self.rental_end_date, datetime.max.time()),
+                'status': self.status
+            }
+        )
+        
+        if not created:
+            calendar_event.transport = self.transport
+            calendar_event.title = f"Аренда: {self.full_name}"
+            calendar_event.start = datetime.combine(self.rental_start_date, datetime.min.time())
+            calendar_event.end = datetime.combine(self.rental_end_date, datetime.max.time())
+            calendar_event.status = self.status
+            calendar_event.save()
+
+    def delete(self, *args, **kwargs):
+        # Удаляем связанное событие календаря при удалении заявки
+        Calendar.objects.filter(rental_application=self).delete()
+        super().delete(*args, **kwargs)
     
     def get_rental_days(self):
         """Вычисляет количество дней аренды"""
@@ -208,3 +236,32 @@ class RentalApplication(models.Model):
         verbose_name = "Заявка на аренду"
         verbose_name_plural = "Заявки на аренду"
         ordering = ['-created_at'] 
+
+class Calendar(models.Model):
+    transport = models.ForeignKey(Transport, verbose_name='Транспорт', on_delete=models.CASCADE, related_name='calendar_events')
+    title = models.CharField('Название события', max_length=200)
+    start = models.DateTimeField('Начало')
+    end = models.DateTimeField('Конец')
+    all_day = models.BooleanField('Весь день', default=True)
+    status = models.CharField(
+        'Статус',
+        max_length=20,
+        choices=RentalApplication.STATUS_CHOICES,
+        default=RentalApplication.STATUS_RESERVED
+    )
+    rental_application = models.ForeignKey(
+        RentalApplication,
+        verbose_name='Заявка на аренду',
+        on_delete=models.CASCADE,
+        related_name='calendar_events',
+        null=True,
+        blank=True
+    )
+
+    def __str__(self):
+        return f"{self.transport} - {self.title} ({self.start.date()} - {self.end.date()})"
+
+    class Meta:
+        verbose_name = "Событие календаря"
+        verbose_name_plural = "События календаря"
+        ordering = ['start'] 

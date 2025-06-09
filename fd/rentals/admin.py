@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.conf import settings
-from .models import Transport, RentalApplication, Client
+from .models import Transport, RentalApplication, Client, Calendar
 from .forms import RentalApplicationForm
 from django.http import HttpResponse, JsonResponse
 from docx import Document
@@ -13,6 +13,8 @@ import io
 import os
 from datetime import datetime
 from django.utils.html import format_html
+from django.urls import path
+from django.shortcuts import render
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -401,3 +403,66 @@ class ClientAdmin(admin.ModelAdmin):
                 'rentals/css/admin.css',
             )
         }
+
+@admin.register(Calendar)
+class CalendarAdmin(admin.ModelAdmin):
+    list_display = ('transport', 'title', 'start', 'end', 'status')
+    list_filter = ('transport', 'status')
+    search_fields = ('title', 'transport__name', 'transport__model')
+    date_hierarchy = 'start'
+
+    @staticmethod
+    def calendar_view(request):
+        transports = Transport.objects.all()
+        context = {
+            'transports': transports,
+            'title': 'Календарь аренды',
+            'opts': Calendar._meta,
+        }
+        return render(request, 'admin/calendar.html', context)
+
+    @staticmethod
+    def calendar_events(request):
+        transport_id = request.GET.get('transport_id')
+        start = request.GET.get('start')
+        end = request.GET.get('end')
+
+        events = Calendar.objects.all()
+        if transport_id:
+            events = events.filter(transport_id=transport_id)
+        if start:
+            events = events.filter(start__gte=start)
+        if end:
+            events = events.filter(end__lte=end)
+
+        events_data = []
+        for event in events:
+            color = {
+                RentalApplication.STATUS_RESERVED: '#ffc107',  # желтый
+                RentalApplication.STATUS_ACTIVE: '#28a745',    # зеленый
+                RentalApplication.STATUS_COMPLETED: '#17a2b8', # голубой
+                RentalApplication.STATUS_CANCELLED: '#dc3545', # красный
+            }.get(event.status, '#6c757d')  # серый по умолчанию
+
+            events_data.append({
+                'id': event.id,
+                'title': event.title,
+                'start': event.start.isoformat(),
+                'end': event.end.isoformat(),
+                'allDay': event.all_day,
+                'color': color,
+                'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,
+            })
+
+        return JsonResponse(events_data, safe=False)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['show_calendar_link'] = True
+        return super().changelist_view(request, extra_context=extra_context)
+
+    class Media:
+        css = {
+            'all': ('admin/css/forms.css',)
+        }
+        js = ('admin/js/calendar.js',)
