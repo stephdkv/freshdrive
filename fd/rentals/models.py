@@ -169,7 +169,7 @@ class RentalApplication(models.Model):
     def get_rental_days(self):
         """Вычисляет количество дней аренды"""
         delta = self.rental_end_date - self.rental_start_date
-        return delta.days + 1  # +1 так как включаем обе даты
+        return delta.days  # Убираем +1, так как нам нужны только полные сутки
     
     def get_daily_rate(self):
         """Определяет тариф за сутки в зависимости от длительности аренды"""
