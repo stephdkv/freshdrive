@@ -6,20 +6,17 @@
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet">
 <style>
     .calendar-container {
+        margin-top: 20px;
         padding: 20px;
         background: white;
-        border-radius: 4px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
-        margin: 20px;
-        min-height: 600px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         width: 100%;
-        box-sizing: border-box;
+        min-height: 600px;
     }
-    .transport-select {
-        margin-bottom: 20px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
+    .fc {
+        width: 100%;
+        height: 600px;
     }
     .fc-event {
         cursor: pointer;
@@ -27,74 +24,24 @@
     .fc-event-title {
         font-weight: bold;
     }
-    .fc-toolbar-title {
-        font-size: 1.5em !important;
+    .transport-select-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
     }
-    .fc-button-primary {
-        background-color: #79aec8 !important;
-        border-color: #79aec8 !important;
-    }
-    .fc-button-primary:hover {
-        background-color: #417690 !important;
-        border-color: #417690 !important;
-    }
-    .fc-button-primary:disabled {
-        background-color: #79aec8 !important;
-        border-color: #79aec8 !important;
-    }
-    .fc-daygrid-day.fc-day-today {
-        background-color: #f8f9fa !important;
-    }
-    .fc-event {
-        border-radius: 3px;
-        padding: 2px 4px;
-    }
-    .calendar-wrapper {
-        display: none;
-        width: 100%;
-        height: 600px;
-        margin-top: 20px;
-    }
-    .calendar-wrapper.active {
-        display: block;
-    }
-    #calendar {
-        width: 100% !important;
-        height: 100% !important;
-    }
-    .fc {
-        width: 100% !important;
-        height: 100% !important;
-    }
-    .fc-view-harness {
-        height: 500px !important;
-    }
-    .fc-scrollgrid {
-        width: 100% !important;
-    }
-    .fc-scrollgrid-section > * {
-        border-width: 1px !important;
-    }
-    .fc-daygrid-body {
-        width: 100% !important;
-    }
-    .fc-daygrid-day {
-        min-height: 100px !important;
-    }
-    .show-button {
-        background-color: #79aec8;
+    .show-calendar-btn {
+        padding: 8px 16px;
+        background-color: #417690;
         color: white;
         border: none;
-        padding: 8px 16px;
         border-radius: 4px;
         cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
     }
-    .show-button:hover {
-        background-color: #417690;
-    }
-    .show-button:disabled {
-        background-color: #ccc;
-        cursor: not-allowed;
+    .show-calendar-btn:hover {
+        background-color: #2b5070;
     }
     #debug-info {
         margin-top: 20px;
@@ -102,144 +49,128 @@
         background: #f8f9fa;
         border: 1px solid #ddd;
         border-radius: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .debug-message {
+        margin: 5px 0;
+        padding: 5px;
+        border-bottom: 1px solid #eee;
+    }
+    .debug-message:last-child {
+        border-bottom: none;
     }
 </style>
 {% endblock %}
 
 {% block extrahead %}
 {{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales-all.min.js"></script>
 <script>
-    // Глобальные переменные
-    var calendar = null;
-
-    // Функция для добавления отладочных сообщений
-    function addDebugMessage(message) {
-        var debugDiv = document.getElementById('debug-messages');
-        if (debugDiv) {
-            var messageElement = document.createElement('div');
-            messageElement.textContent = new Date().toLocaleTimeString() + ': ' + message;
-            debugDiv.appendChild(messageElement);
-        }
-        console.log(message);
-    }
-
-    // Инициализация календаря
-    function initCalendar() {
-        addDebugMessage('Начало инициализации календаря');
-        var calendarEl = document.getElementById('calendar');
-        if (!calendarEl) {
-            addDebugMessage('ОШИБКА: Элемент календаря не найден');
-            return;
+    document.addEventListener('DOMContentLoaded', function() {
+        var calendar = null;
+        var debugMessages = [];
+        
+        function addDebugMessage(message) {
+            var debugInfo = document.getElementById('debug-info');
+            if (debugInfo) {
+                var messageDiv = document.createElement('div');
+                messageDiv.className = 'debug-message';
+                messageDiv.textContent = message;
+                debugInfo.appendChild(messageDiv);
+                debugInfo.scrollTop = debugInfo.scrollHeight;
+            }
+            console.log(message);
         }
 
-        try {
-            addDebugMessage('Создание экземпляра календаря');
+        function showCalendar() {
+            var transportSelect = document.getElementById('id_transport');
+            var calendarWrapper = document.getElementById('calendar-wrapper');
+            
+            if (!transportSelect || !transportSelect.value) {
+                alert('Пожалуйста, выберите транспорт');
+                return;
+            }
+
+            if (!calendarWrapper) {
+                addDebugMessage('Ошибка: контейнер календаря не найден');
+                return;
+            }
+
+            // Показываем контейнер календаря
+            calendarWrapper.style.display = 'block';
+            
+            // Если календарь уже существует, обновляем его
+            if (calendar) {
+                calendar.destroy();
+            }
+
+            // Создаем новый календарь
+            var calendarEl = document.getElementById('calendar');
+            if (!calendarEl) {
+                addDebugMessage('Ошибка: элемент календаря не найден');
+                return;
+            }
+
+            addDebugMessage('Инициализация календаря...');
             
             calendar = new FullCalendar.Calendar(calendarEl, {
                 initialView: 'dayGridMonth',
                 locale: 'ru',
-                height: '100%',
-                width: '100%',
-                contentHeight: 'auto',
-                aspectRatio: 1.35,
                 headerToolbar: {
                     left: 'prev,next today',
                     center: 'title',
                     right: 'dayGridMonth'
                 },
-                buttonText: {
-                    today: 'Сегодня',
-                    month: 'Месяц'
-                },
                 events: function(info, successCallback, failureCallback) {
-                    var transportId = document.getElementById('transport-select').value;
-                    addDebugMessage('Загрузка событий для транспорта: ' + transportId);
-                    
+                    var transportId = transportSelect.value;
                     if (!transportId) {
-                        addDebugMessage('Транспорт не выбран, возвращаем пустой список событий');
+                        addDebugMessage('Транспорт не выбран');
                         successCallback([]);
                         return;
                     }
 
-                    var url = '/rentals/admin/calendar/events/';
-                    url += '?transport_id=' + transportId;
-                    if (info.start) {
-                        url += '&start=' + info.start.toISOString();
-                    }
-                    if (info.end) {
-                        url += '&end=' + info.end.toISOString();
-                    }
+                    addDebugMessage('Загрузка событий для транспорта: ' + transportId);
                     
-                    addDebugMessage('Запрос к URL: ' + url);
-                    
-                    fetch(url)
-                        .then(function(response) {
-                            addDebugMessage('Получен ответ от сервера');
+                    fetch('/rentals/admin/calendar/events/?transport_id=' + transportId + 
+                          '&start=' + info.startStr + 
+                          '&end=' + info.endStr)
+                        .then(response => {
+                            if (!response.ok) {
+                                return response.json().then(data => {
+                                    throw new Error(data.error || 'Ошибка загрузки событий');
+                                });
+                            }
                             return response.json();
                         })
-                        .then(function(data) {
-                            addDebugMessage('Получены данные: ' + JSON.stringify(data));
-                            successCallback(data);
+                        .then(data => {
+                            if (Array.isArray(data)) {
+                                addDebugMessage('События загружены: ' + data.length + ' событий');
+                                successCallback(data);
+                            } else {
+                                throw new Error('Неверный формат данных');
+                            }
                         })
-                        .catch(function(error) {
-                            addDebugMessage('ОШИБКА при загрузке событий: ' + error.message);
+                        .catch(error => {
+                            addDebugMessage('Ошибка загрузки событий: ' + error.message);
                             failureCallback(error);
                         });
                 },
                 eventClick: function(info) {
                     addDebugMessage('Клик по событию: ' + info.event.title);
-                    if (info.event.url) {
-                        window.location.href = info.event.url;
-                    }
+                    window.location.href = '/admin/rentals/rentalapplication/' + info.event.id + '/change/';
+                },
+                eventDidMount: function(info) {
+                    addDebugMessage('Событие отрендерено: ' + info.event.title);
+                },
+                loading: function(isLoading) {
+                    addDebugMessage(isLoading ? 'Загрузка...' : 'Загрузка завершена');
                 }
             });
-            
-            addDebugMessage('Экземпляр календаря создан успешно');
+
             calendar.render();
             addDebugMessage('Календарь отрендерен');
-        } catch (error) {
-            addDebugMessage('ОШИБКА при инициализации календаря: ' + error.message);
-        }
-    }
-
-    // Показ календаря
-    function showCalendar() {
-        addDebugMessage('Нажата кнопка показать календарь');
-        var wrapper = document.getElementById('calendar-wrapper');
-        var button = document.getElementById('show-calendar');
-        var transportId = document.getElementById('transport-select').value;
-
-        if (!transportId) {
-            addDebugMessage('Транспорт не выбран, показываем предупреждение');
-            alert('Пожалуйста, выберите транспорт');
-            return;
-        }
-
-        if (!wrapper.classList.contains('active')) {
-            addDebugMessage('Показываем календарь');
-            wrapper.classList.add('active');
-            if (!calendar) {
-                initCalendar();
-            } else {
-                calendar.render();
-                calendar.refetchEvents();
-            }
-            button.disabled = true;
-        }
-    }
-
-    // Базовая проверка загрузки скриптов
-    window.addEventListener('load', function() {
-        var debugDiv = document.getElementById('debug-messages');
-        if (debugDiv) {
-            debugDiv.innerHTML += '<div>Страница загружена</div>';
-        }
-        
-        // Проверка наличия FullCalendar
-        if (typeof FullCalendar === 'undefined') {
-            debugDiv.innerHTML += '<div style="color: red;">ОШИБКА: FullCalendar не загружен</div>';
-        } else {
-            debugDiv.innerHTML += '<div style="color: green;">FullCalendar успешно загружен</div>';
         }
 
         // Добавляем обработчик для кнопки
@@ -248,32 +179,30 @@
             showButton.addEventListener('click', showCalendar);
             addDebugMessage('Обработчик кнопки добавлен');
         } else {
-            addDebugMessage('ОШИБКА: Кнопка показать не найдена');
+            addDebugMessage('Ошибка: кнопка не найдена');
         }
     });
 </script>
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales-all.min.js"></script>
 {% endblock %}
 
 {% block content %}
-<div class="calendar-container">
-    <div class="transport-select">
-        <label for="transport-select">Выберите транспорт:</label>
-        <select id="transport-select" class="vSelectField">
-            <option value="">Все транспортные средства</option>
+<div id="content-main">
+    <div class="transport-select-wrapper">
+        <select name="transport" id="id_transport" class="transport-field">
+            <option value="">---------</option>
             {% for transport in transports %}
-            <option value="{{ transport.id }}">{{ transport }}</option>
+                <option value="{{ transport.id }}">№{{ transport.number }} - {{ transport.name }} {{ transport.model }} ({{ transport.vin_number }})</option>
             {% endfor %}
         </select>
-        <button id="show-calendar" class="show-button">Показать календарь</button>
+        <button type="button" id="show-calendar" class="show-calendar-btn">Показать календарь</button>
     </div>
-    <div id="calendar-wrapper" class="calendar-wrapper">
+
+    <div id="calendar-wrapper" style="display: none;">
         <div id="calendar"></div>
     </div>
+
     <div id="debug-info">
-        <h3>Отладочная информация:</h3>
-        <div id="debug-messages"></div>
+        <div class="debug-message">Страница загружена</div>
     </div>
 </div>
 {% endblock %} 

@@ -110,8 +110,9 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     form = RentalApplicationForm
     list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
-                   'get_daily_rate_display', 'get_security_deposit_display', 'get_total_cost_display')
-    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at')
+                   'get_daily_rate_display', 'get_discount_display', 'get_discount_amount_display',
+                   'get_security_deposit_display', 'get_total_cost_display')
+    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
@@ -121,7 +122,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'fields': ('full_name', 'phone_number')
         }),
         ('Детали аренды', {
-            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'status')
+            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'discount', 'status')
         }),
         ('Паспортные данные', {
             'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date')
@@ -148,9 +149,17 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return f"{obj.get_daily_rate():,} ₽/день"
     get_daily_rate_display.short_description = 'Тариф'
 
+    def get_discount_display(self, obj):
+        return f"{obj.discount}%"
+    get_discount_display.short_description = 'Скидка'
+
+    def get_discount_amount_display(self, obj):
+        return f"{obj.get_discount_amount():,} ₽"
+    get_discount_amount_display.short_description = 'Сумма скидки'
+
     def get_total_cost_display(self, obj):
         return f"{obj.calculate_total_cost():,} ₽"
-    get_total_cost_display.short_description = 'Итого'
+    get_total_cost_display.short_description = 'Итого со скидкой'
 
     def get_security_deposit_display(self, obj):
         return f"{int(obj.security_deposit):,} ₽"
@@ -423,38 +432,54 @@ class CalendarAdmin(admin.ModelAdmin):
 
     @staticmethod
     def calendar_events(request):
-        transport_id = request.GET.get('transport_id')
-        start = request.GET.get('start')
-        end = request.GET.get('end')
+        try:
+            transport_id = request.GET.get('transport_id')
+            start = request.GET.get('start')
+            end = request.GET.get('end')
 
-        events = Calendar.objects.all()
-        if transport_id:
-            events = events.filter(transport_id=transport_id)
-        if start:
-            events = events.filter(start__gte=start)
-        if end:
-            events = events.filter(end__lte=end)
+            if not transport_id:
+                return JsonResponse({'error': 'Transport ID is required'}, status=400)
 
-        events_data = []
-        for event in events:
-            color = {
-                RentalApplication.STATUS_RESERVED: '#ffc107',  # желтый
-                RentalApplication.STATUS_ACTIVE: '#28a745',    # зеленый
-                RentalApplication.STATUS_COMPLETED: '#17a2b8', # голубой
-                RentalApplication.STATUS_CANCELLED: '#dc3545', # красный
-            }.get(event.status, '#6c757d')  # серый по умолчанию
+            events = Calendar.objects.filter(transport_id=transport_id)
+            
+            if start:
+                try:
+                    # FullCalendar отправляет даты в формате YYYY-MM-DD
+                    start_date = datetime.strptime(start.split('T')[0], '%Y-%m-%d')
+                    events = events.filter(start__date__gte=start_date.date())
+                except (ValueError, IndexError) as e:
+                    return JsonResponse({'error': f'Invalid start date format: {str(e)}'}, status=400)
+            
+            if end:
+                try:
+                    # FullCalendar отправляет даты в формате YYYY-MM-DD
+                    end_date = datetime.strptime(end.split('T')[0], '%Y-%m-%d')
+                    events = events.filter(end__date__lte=end_date.date())
+                except (ValueError, IndexError) as e:
+                    return JsonResponse({'error': f'Invalid end date format: {str(e)}'}, status=400)
 
-            events_data.append({
-                'id': event.id,
-                'title': event.title,
-                'start': event.start.isoformat(),
-                'end': event.end.isoformat(),
-                'allDay': event.all_day,
-                'color': color,
-                'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,
-            })
+            events_data = []
+            for event in events:
+                color = {
+                    RentalApplication.STATUS_RESERVED: '#ffc107',  # желтый
+                    RentalApplication.STATUS_ACTIVE: '#28a745',    # зеленый
+                    RentalApplication.STATUS_COMPLETED: '#17a2b8', # голубой
+                    RentalApplication.STATUS_CANCELLED: '#dc3545', # красный
+                }.get(event.status, '#6c757d')  # серый по умолчанию
 
-        return JsonResponse(events_data, safe=False)
+                events_data.append({
+                    'id': event.rental_application.id if event.rental_application else event.id,
+                    'title': event.title,
+                    'start': event.start.isoformat(),
+                    'end': event.end.isoformat(),
+                    'allDay': event.all_day,
+                    'color': color,
+                    'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,
+                })
+
+            return JsonResponse(events_data, safe=False)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}

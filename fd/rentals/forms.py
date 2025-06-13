@@ -28,25 +28,67 @@ class RentalApplicationForm(forms.ModelForm):
             except Exception:
                 pass
         
-        if start_date and end_date:
-            # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
-            booked_transport_ids = RentalApplication.objects.filter(
-                Q(rental_start_date__lte=end_date) & 
-                Q(rental_end_date__gte=start_date)
-            ).exclude(id=self.instance.id if self.instance else None).values_list('transport_id', flat=True)
+        # Если это редактирование существующей заявки
+        if self.instance and self.instance.pk:
+            current_transport = self.instance.transport
+            # Делаем поле transport необязательным при редактировании
+            self.fields['transport'].required = False
             
-            # Фильтруем queryset для поля transport
-            self.fields['transport'].queryset = Transport.objects.exclude(
-                id__in=booked_transport_ids
-            )
+            if start_date and end_date:
+                # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
+                # Исключаем отмененные заявки и текущую заявку
+                booked_transport_ids = RentalApplication.objects.filter(
+                    Q(rental_start_date__lte=end_date) & 
+                    Q(rental_end_date__gte=start_date) &
+                    ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
+                ).exclude(id=self.instance.id).values_list('transport_id', flat=True)
+                
+                # Фильтруем queryset для поля transport, включая текущий транспорт
+                self.fields['transport'].queryset = Transport.objects.filter(
+                    Q(id=current_transport.id) | ~Q(id__in=booked_transport_ids)
+                )
+            else:
+                # Если даты не выбраны, показываем только текущий транспорт
+                self.fields['transport'].queryset = Transport.objects.filter(id=current_transport.id)
         else:
-            # Если даты не выбраны или неверного формата, показываем весь транспорт
-            self.fields['transport'].queryset = Transport.objects.all()
+            # Для новой заявки используем стандартную логику
+            if start_date and end_date:
+                # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
+                # Исключаем отмененные заявки
+                booked_transport_ids = RentalApplication.objects.filter(
+                    Q(rental_start_date__lte=end_date) & 
+                    Q(rental_end_date__gte=start_date) &
+                    ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
+                ).values_list('transport_id', flat=True)
+                
+                self.fields['transport'].queryset = Transport.objects.exclude(
+                    id__in=booked_transport_ids
+                )
+            else:
+                self.fields['transport'].queryset = Transport.objects.all()
             
         # Добавляем класс для стилизации
         self.fields['rental_start_date'].widget.attrs.update({'class': 'date-field vDateField'})
         self.fields['rental_end_date'].widget.attrs.update({'class': 'date-field vDateField'})
         self.fields['transport'].widget.attrs.update({'class': 'transport-field'})
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # Если это редактирование существующей заявки и транспорт не выбран,
+        # используем текущий транспорт из instance
+        if self.instance and self.instance.pk:
+            if not cleaned_data.get('transport'):
+                cleaned_data['transport'] = self.instance.transport
+        return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # Если это редактирование и транспорт не был выбран, используем текущий
+        if self.instance and self.instance.pk and not instance.transport:
+            instance.transport = self.instance.transport
+        if commit:
+            instance.save()
+        return instance
 
     class Meta:
         model = RentalApplication

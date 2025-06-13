@@ -46,7 +46,8 @@ class Transport(models.Model):
         # Проверяем пересечение с существующими бронями
         overlapping_bookings = self.rental_applications.filter(
             Q(rental_start_date__lte=end_date) & 
-            Q(rental_end_date__gte=start_date)
+            Q(rental_end_date__gte=start_date) &
+            ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
         )
         
         # Исключаем текущую бронь при редактировании
@@ -80,6 +81,12 @@ class RentalApplication(models.Model):
         (STATUS_CANCELLED, 'Отмененная'),
     ]
 
+    DISCOUNT_CHOICES = [
+        (0, 'Без скидки'),
+        (10, '10%'),
+        (20, '20%'),
+    ]
+
     client = models.ForeignKey(Client, verbose_name='Клиент', on_delete=models.PROTECT, related_name='rental_applications', null=True, blank=True)
     full_name = models.CharField('ФИО', max_length=200, help_text="Полное имя арендатора")
     phone_number = PhoneNumberField('Телефон', help_text="Контактный номер телефона.")
@@ -91,6 +98,7 @@ class RentalApplication(models.Model):
     transport = models.ForeignKey(Transport, verbose_name='Транспорт', on_delete=models.PROTECT, related_name='rental_applications')
     security_deposit = models.DecimalField('Обеспечительный платеж', max_digits=10, decimal_places=0, default=0,
                                          help_text="Сумма обеспечительного платежа", null=True, blank=True)
+    discount = models.IntegerField('Скидка', choices=DISCOUNT_CHOICES, default=0, help_text="Скидка на аренду")
     status = models.CharField(
         'Статус',
         max_length=20,
@@ -185,8 +193,15 @@ class RentalApplication(models.Model):
             return int(self.transport.price_30_plus_days)
     
     def calculate_total_cost(self):
-        """Вычисляет общую стоимость аренды"""
-        return int(self.get_daily_rate() * self.get_rental_days())
+        """Вычисляет общую стоимость аренды с учетом скидки"""
+        base_cost = int(self.get_daily_rate() * self.get_rental_days())
+        discount_amount = base_cost * (self.discount / 100)
+        return int(base_cost - discount_amount)
+    
+    def get_discount_amount(self):
+        """Возвращает сумму скидки"""
+        base_cost = int(self.get_daily_rate() * self.get_rental_days())
+        return int(base_cost * (self.discount / 100))
     
     def get_rate_type(self):
         """Возвращает тип примененного тарифа"""
