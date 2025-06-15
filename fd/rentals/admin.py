@@ -54,7 +54,7 @@ class CustomUserAdmin(UserAdmin):
         return super().get_readonly_fields(request, obj)
 
 # Отменяем регистрацию стандартного GroupAdmin, так как он нам не нужен
-admin.site.unregister(Group)
+# admin.site.unregister(Group)
 
 template_path = os.path.join(settings.BASE_DIR, 'rentals', 'templates', 'contracts', 'rental_contract_template.docx')
 doc = Document(template_path)
