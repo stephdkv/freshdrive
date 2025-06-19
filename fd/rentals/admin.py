@@ -8,13 +8,14 @@ from django.template.defaultfilters import date as _date
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.admin import UserAdmin
 from django.core.exceptions import PermissionDenied
-from django.db.models import Sum
+from django.db.models import Sum, Q
 import io
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from django.utils.html import format_html
 from django.urls import path
 from django.shortcuts import render
+from urllib.parse import quote
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -119,7 +120,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Информация об арендаторе', {
-            'fields': ('full_name', 'phone_number')
+            'fields': ('client', 'full_name', 'phone_number')
         }),
         ('Детали аренды', {
             'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'discount', 'status')
@@ -136,6 +137,46 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         if obj:  # editing an existing object
             return ('created_at', 'updated_at')
         return ()
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        
+        # Если это создание новой заявки и есть параметры клиента в URL
+        if not obj and request.method == 'GET':
+            client_id = request.GET.get('client_id')
+            full_name = request.GET.get('full_name')
+            phone_number = request.GET.get('phone_number')
+            passport_number = request.GET.get('passport_number')
+            passport_issued_by = request.GET.get('passport_issued_by')
+            passport_issue_date = request.GET.get('passport_issue_date')
+            
+            if client_id and full_name and phone_number:
+                # Предзаполняем поля данными клиента
+                form.base_fields['full_name'].initial = full_name
+                form.base_fields['phone_number'].initial = phone_number
+                
+                # Предзаполняем паспортные данные, если они есть
+                if passport_number:
+                    form.base_fields['passport_number'].initial = passport_number
+                if passport_issued_by:
+                    form.base_fields['passport_issued_by'].initial = passport_issued_by
+                if passport_issue_date:
+                    try:
+                        from datetime import datetime
+                        date_obj = datetime.strptime(passport_issue_date, '%Y-%m-%d').date()
+                        form.base_fields['passport_issue_date'].initial = date_obj
+                    except ValueError:
+                        pass
+                
+                # Устанавливаем клиента
+                try:
+                    from .models import Client
+                    client = Client.objects.get(id=client_id)
+                    form.base_fields['client'].initial = client
+                except Client.DoesNotExist:
+                    pass
+        
+        return form
 
     def get_rental_days_display(self, obj):
         return f"{obj.get_rental_days()} дн."
@@ -334,9 +375,15 @@ class RentalApplicationAdmin(admin.ModelAdmin):
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'phone_number', 'get_rental_count', 'get_last_rental_date', 'created_at')
-    search_fields = ('full_name', 'phone_number')
+    list_display = ('full_name', 'phone_number', 'get_passport_info', 'get_rental_count', 'get_last_rental_date', 'created_at')
+    search_fields = ('full_name', 'phone_number', 'passport_number')
     ordering = ('phone_number',)
+    
+    def get_passport_info(self, obj):
+        if obj.passport_number:
+            return f"Паспорт: {obj.passport_number}"
+        return "Паспорт не указан"
+    get_passport_info.short_description = 'Паспортные данные'
     
     def get_rental_count(self, obj):
         return obj.rental_applications.count()
@@ -349,9 +396,50 @@ class ClientAdmin(admin.ModelAdmin):
         return '-'
     get_last_rental_date.short_description = 'Последняя аренда'
 
+    def create_rental_for_client(self, request, queryset):
+        from django.shortcuts import redirect
+        from urllib.parse import quote
+        
+        if queryset.count() == 1:
+            # Если выбран только один клиент, перенаправляем на форму создания
+            client = queryset.first()
+            
+            # Формируем URL с предзаполненными данными клиента, включая паспортные данные
+            params = {
+                'client_id': client.id,
+                'full_name': quote(client.full_name),
+                'phone_number': quote(str(client.phone_number)),
+            }
+            
+            # Добавляем паспортные данные, если они есть
+            if client.passport_number:
+                params['passport_number'] = quote(client.passport_number)
+            if client.passport_issued_by:
+                params['passport_issued_by'] = quote(client.passport_issued_by)
+            if client.passport_issue_date:
+                params['passport_issue_date'] = client.passport_issue_date.strftime('%Y-%m-%d')
+            
+            # Собираем URL с параметрами
+            param_string = '&'.join([f'{k}={v}' for k, v in params.items()])
+            add_url = f'/admin/rentals/rentalapplication/add/?{param_string}'
+            
+            return redirect(add_url)
+        else:
+            # Если выбрано несколько клиентов, показываем сообщение
+            self.message_user(request, 'Для создания заявки выберите только одного клиента', level='WARNING')
+            return None
+    
+    create_rental_for_client.short_description = "Создать заявку для выбранного клиента"
+
+    actions = ['create_rental_for_client']
+
     fieldsets = (
         ('Основная информация', {
             'fields': ('full_name', 'phone_number')
+        }),
+        ('Паспортные данные', {
+            'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date'),
+            'classes': ('collapse',)
         }),
         ('История заявок', {
             'fields': ('get_rental_history',),
@@ -359,6 +447,53 @@ class ClientAdmin(admin.ModelAdmin):
         }),
     )
     readonly_fields = ('get_rental_history',)
+
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<int:client_id>/create-rental/',
+                self.admin_site.admin_view(self.create_rental_view),
+                name='rentals_client_create_rental',
+            ),
+        ]
+        return custom_urls + urls
+
+    def create_rental_view(self, request, client_id):
+        from django.shortcuts import redirect
+        from django.contrib import messages
+        
+        try:
+            client = Client.objects.get(id=client_id)
+            
+            # Формируем URL с предзаполненными данными клиента, включая паспортные данные
+            params = {
+                'client_id': client.id,
+                'full_name': quote(client.full_name),
+                'phone_number': quote(str(client.phone_number)),
+            }
+            
+            # Добавляем паспортные данные, если они есть
+            if client.passport_number:
+                params['passport_number'] = quote(client.passport_number)
+            if client.passport_issued_by:
+                params['passport_issued_by'] = quote(client.passport_issued_by)
+            if client.passport_issue_date:
+                params['passport_issue_date'] = client.passport_issue_date.strftime('%Y-%m-%d')
+            
+            # Собираем URL с параметрами
+            param_string = '&'.join([f'{k}={v}' for k, v in params.items()])
+            add_url = f'/admin/rentals/rentalapplication/add/?{param_string}'
+            
+            return redirect(add_url)
+            
+        except Client.DoesNotExist:
+            messages.error(request, 'Клиент не найден')
+            return redirect('/admin/rentals/client/')
+        except Exception as e:
+            messages.error(request, f'Ошибка при создании заявки: {str(e)}')
+            return redirect('/admin/rentals/client/')
 
     def get_rental_history(self, obj):
         rentals = obj.rental_applications.all().order_by('-rental_start_date')
@@ -401,7 +536,22 @@ class ClientAdmin(admin.ModelAdmin):
             '''
         
         html += '</table>'
-        return format_html(html)
+        
+        # Добавляем кнопку создания новой заявки
+        create_button = f'''
+            <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
+                <a href="/admin/rentals/client/{obj.id}/create-rental/" 
+                   class="button" 
+                   style="padding: 8px 16px; background: #28a745; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                    ➕ Создать новую заявку
+                </a>
+                <span style="margin-left: 10px; color: #666; font-size: 12px;">
+                    Создаст новую заявку с предзаполненными данными клиента
+                </span>
+            </div>
+        '''
+        
+        return format_html(html + create_button)
     get_rental_history.short_description = 'История заявок'
 
     class Media:
@@ -423,10 +573,30 @@ class CalendarAdmin(admin.ModelAdmin):
     @staticmethod
     def calendar_view(request):
         transports = Transport.objects.all()
+        
+        # Получаем статистику по статусам заявок
+        from django.db.models import Count
+        status_stats = RentalApplication.objects.values('status').annotate(
+            count=Count('id')
+        ).order_by('status')
+        
+        # Формируем статистику для отображения
+        stats = {}
+        total_rentals = 0
+        for stat in status_stats:
+            status_display = dict(RentalApplication.STATUS_CHOICES).get(stat['status'], stat['status'])
+            stats[stat['status']] = {
+                'count': stat['count'],
+                'display': status_display
+            }
+            total_rentals += stat['count']
+        
         context = {
             'transports': transports,
             'title': 'Календарь аренды',
             'opts': Calendar._meta,
+            'stats': stats,
+            'total_rentals': total_rentals,
         }
         return render(request, 'admin/calendar.html', context)
 
@@ -434,13 +604,20 @@ class CalendarAdmin(admin.ModelAdmin):
     def calendar_events(request):
         try:
             transport_id = request.GET.get('transport_id')
+            transport_ids = request.GET.getlist('transport_ids[]')  # Для множественного выбора
             start = request.GET.get('start')
             end = request.GET.get('end')
 
-            if not transport_id:
-                return JsonResponse({'error': 'Transport ID is required'}, status=400)
-
-            events = Calendar.objects.filter(transport_id=transport_id)
+            # Определяем фильтр для транспорта
+            if transport_ids:
+                # Если переданы ID нескольких транспортов
+                events = Calendar.objects.filter(transport_id__in=transport_ids)
+            elif not transport_id or transport_id == 'all':
+                # Если transport_id не указан или равен "all", показываем все события
+                events = Calendar.objects.all()
+            else:
+                # Фильтруем по одному транспорту
+                events = Calendar.objects.filter(transport_id=transport_id)
             
             if start:
                 try:
@@ -467,14 +644,40 @@ class CalendarAdmin(admin.ModelAdmin):
                     RentalApplication.STATUS_CANCELLED: '#dc3545', # красный
                 }.get(event.status, '#6c757d')  # серый по умолчанию
 
+                # Добавляем информацию о транспорте в заголовок события
+                title = f"{event.title} (№{event.transport.number} - {event.transport.name} {event.transport.model})"
+
+                # Получаем дополнительную информацию о заявке для tooltip
+                extended_props = {
+                    'transport': f"№{event.transport.number} - {event.transport.name} {event.transport.model}",
+                    'transportNumber': event.transport.number,
+                    'transportId': event.transport.id,
+                    'status': event.status,
+                    'statusDisplay': dict(RentalApplication.STATUS_CHOICES).get(event.status, event.status),
+                }
+
+                # Добавляем информацию о стоимости и депозите, если есть связанная заявка
+                if event.rental_application:
+                    rental = event.rental_application
+                    extended_props.update({
+                        'clientName': rental.full_name,
+                        'clientPhone': str(rental.phone_number),
+                        'cost': f"{rental.calculate_total_cost():,}",
+                        'deposit': f"{int(rental.security_deposit or 0):,}",
+                        'discount': f"{rental.discount}%",
+                        'dailyRate': f"{rental.get_daily_rate():,}",
+                        'rentalDays': rental.get_rental_days(),
+                    })
+
                 events_data.append({
                     'id': event.rental_application.id if event.rental_application else event.id,
-                    'title': event.title,
+                    'title': title,
                     'start': event.start.isoformat(),
                     'end': event.end.isoformat(),
                     'allDay': event.all_day,
                     'color': color,
                     'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,
+                    'extendedProps': extended_props,
                 })
 
             return JsonResponse(events_data, safe=False)

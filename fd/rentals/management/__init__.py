@@ -1,1 +1,1 @@
- 
+# Management package for rentals app 

@@ -43,6 +43,62 @@
     .show-calendar-btn:hover {
         background-color: #2b5070;
     }
+    .show-all-btn {
+        padding: 8px 16px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
+    }
+    .show-all-btn:hover {
+        background-color: #218838;
+    }
+    .stats-container {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 20px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+    }
+    .stat-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-weight: bold;
+        font-size: 14px;
+    }
+    .stat-reserved {
+        background-color: #fff3cd;
+        color: #856404;
+        border: 1px solid #ffeaa7;
+    }
+    .stat-active {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    .stat-completed {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+    }
+    .stat-cancelled {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+    .stat-total {
+        background-color: #e2e3e5;
+        color: #383d41;
+        border: 1px solid #d6d8db;
+    }
     #debug-info {
         margin-top: 20px;
         padding: 10px;
@@ -60,6 +116,60 @@
     .debug-message:last-child {
         border-bottom: none;
     }
+    .fc .fc-daygrid-event {
+        z-index: 6;
+        margin-top: 3px;
+    }
+    
+    /* Стили для tooltip */
+    .rental-tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        max-width: 300px;
+        z-index: 10000;
+        pointer-events: none;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .rental-tooltip h4 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        font-weight: bold;
+        color: #fff;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        padding-bottom: 4px;
+    }
+    .rental-tooltip .tooltip-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 4px 0;
+        line-height: 1.4;
+    }
+    .rental-tooltip .tooltip-label {
+        font-weight: bold;
+        color: #ccc;
+        margin-right: 10px;
+    }
+    .rental-tooltip .tooltip-value {
+        color: #fff;
+        text-align: right;
+    }
+    .rental-tooltip .status-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .status-reserved { background-color: #ffc107; color: #000; }
+    .status-active { background-color: #28a745; color: #fff; }
+    .status-completed { background-color: #17a2b8; color: #fff; }
+    .status-cancelled { background-color: #dc3545; color: #fff; }
 </style>
 {% endblock %}
 
@@ -71,6 +181,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         var calendar = null;
         var debugMessages = [];
+        var tooltip = null;
         
         function addDebugMessage(message) {
             var debugInfo = document.getElementById('debug-info');
@@ -84,15 +195,155 @@
             console.log(message);
         }
 
-        function showCalendar() {
-            var transportSelect = document.getElementById('id_transport');
+        // Создаем tooltip элемент
+        function createTooltip() {
+            if (!tooltip) {
+                tooltip = document.createElement('div');
+                tooltip.className = 'rental-tooltip';
+                tooltip.style.display = 'none';
+                document.body.appendChild(tooltip);
+            }
+            return tooltip;
+        }
+
+        // Показываем tooltip с информацией о заявке
+        function showTooltip(event, mouseEvent) {
+            var tooltip = createTooltip();
+            
+            // Получаем данные о заявке из события
+            var eventData = event.event.extendedProps;
+            var title = event.event.title;
+            var start = event.event.start;
+            var end = event.event.end;
+            
+            // Форматируем даты
+            var startDate = start.toLocaleDateString('ru-RU');
+            var endDate = end.toLocaleDateString('ru-RU');
+            var duration = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+            
+            // Определяем статус и его цвет
+            var statusColors = {
+                'reserved': 'status-reserved',
+                'active': 'status-active',
+                'completed': 'status-completed',
+                'cancelled': 'status-cancelled'
+            };
+            var statusClass = statusColors[eventData.status] || 'status-reserved';
+            var statusText = eventData.statusDisplay || 'Резерв';
+            
+            // Формируем HTML для tooltip
+            var tooltipHtml = `
+                <h4>${title}</h4>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Статус:</span>
+                    <span class="tooltip-value"><span class="status-badge ${statusClass}">${statusText}</span></span>
+                </div>
+            `;
+            
+            // Добавляем информацию о клиенте, если есть
+            if (eventData.clientName) {
+                tooltipHtml += `
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Клиент:</span>
+                        <span class="tooltip-value">${eventData.clientName}</span>
+                    </div>
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Телефон:</span>
+                        <span class="tooltip-value">${eventData.clientPhone}</span>
+                    </div>
+                `;
+            }
+            
+            tooltipHtml += `
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Транспорт:</span>
+                    <span class="tooltip-value">${eventData.transport || 'Не указан'}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Номер:</span>
+                    <span class="tooltip-value">№${eventData.transportNumber || 'Не указан'}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Период:</span>
+                    <span class="tooltip-value">${startDate} - ${endDate}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Длительность:</span>
+                    <span class="tooltip-value">${duration} дн.</span>
+                </div>
+            `;
+            
+            // Добавляем финансовую информацию, если есть
+            if (eventData.cost) {
+                tooltipHtml += `
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Стоимость:</span>
+                        <span class="tooltip-value">${eventData.cost} ₽</span>
+                    </div>
+                `;
+            }
+            
+            if (eventData.dailyRate) {
+                tooltipHtml += `
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Тариф:</span>
+                        <span class="tooltip-value">${eventData.dailyRate} ₽/день</span>
+                    </div>
+                `;
+            }
+            
+            if (eventData.discount && eventData.discount !== '0%') {
+                tooltipHtml += `
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Скидка:</span>
+                        <span class="tooltip-value">${eventData.discount}</span>
+                    </div>
+                `;
+            }
+            
+            if (eventData.deposit && eventData.deposit !== '0') {
+                tooltipHtml += `
+                    <div class="tooltip-row">
+                        <span class="tooltip-label">Депозит:</span>
+                        <span class="tooltip-value">${eventData.deposit} ₽</span>
+                    </div>
+                `;
+            }
+            
+            tooltip.innerHTML = tooltipHtml;
+            tooltip.style.display = 'block';
+            
+            // Позиционируем tooltip
+            var x = mouseEvent.pageX + 10;
+            var y = mouseEvent.pageY - 10;
+            
+            // Проверяем, чтобы tooltip не выходил за границы экрана
+            var tooltipRect = tooltip.getBoundingClientRect();
+            var windowWidth = window.innerWidth;
+            var windowHeight = window.innerHeight;
+            
+            if (x + tooltipRect.width > windowWidth) {
+                x = mouseEvent.pageX - tooltipRect.width - 10;
+            }
+            
+            if (y + tooltipRect.height > windowHeight) {
+                y = mouseEvent.pageY - tooltipRect.height - 10;
+            }
+            
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+
+        // Скрываем tooltip
+        function hideTooltip() {
+            if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+        }
+
+        function showCalendar(transportId) {
             var calendarWrapper = document.getElementById('calendar-wrapper');
             
-            if (!transportSelect || !transportSelect.value) {
-                alert('Пожалуйста, выберите транспорт');
-                return;
-            }
-
             if (!calendarWrapper) {
                 addDebugMessage('Ошибка: контейнер календаря не найден');
                 return;
@@ -124,18 +375,17 @@
                     right: 'dayGridMonth'
                 },
                 events: function(info, successCallback, failureCallback) {
-                    var transportId = transportSelect.value;
-                    if (!transportId) {
-                        addDebugMessage('Транспорт не выбран');
-                        successCallback([]);
-                        return;
+                    var url = '/rentals/admin/calendar/events/?start=' + info.startStr + '&end=' + info.endStr;
+                    
+                    if (transportId && transportId !== 'all') {
+                        url += '&transport_id=' + transportId;
+                    } else {
+                        url += '&transport_id=all';
                     }
 
-                    addDebugMessage('Загрузка событий для транспорта: ' + transportId);
+                    addDebugMessage('Загрузка событий: ' + (transportId === 'all' ? 'все транспорты' : 'транспорт ID: ' + transportId));
                     
-                    fetch('/rentals/admin/calendar/events/?transport_id=' + transportId + 
-                          '&start=' + info.startStr + 
-                          '&end=' + info.endStr)
+                    fetch(url)
                         .then(response => {
                             if (!response.ok) {
                                 return response.json().then(data => {
@@ -157,9 +407,18 @@
                             failureCallback(error);
                         });
                 },
+                eventMouseEnter: function(info) {
+                    showTooltip(info, info.jsEvent);
+                },
+                eventMouseLeave: function(info) {
+                    hideTooltip();
+                },
                 eventClick: function(info) {
+                    hideTooltip();
                     addDebugMessage('Клик по событию: ' + info.event.title);
-                    window.location.href = '/admin/rentals/rentalapplication/' + info.event.id + '/change/';
+                    if (info.event.url) {
+                        window.location.href = info.event.url;
+                    }
                 },
                 eventDidMount: function(info) {
                     addDebugMessage('Событие отрендерено: ' + info.event.title);
@@ -173,13 +432,31 @@
             addDebugMessage('Календарь отрендерен');
         }
 
-        // Добавляем обработчик для кнопки
+        // Добавляем обработчик для кнопки "Показать календарь"
         var showButton = document.getElementById('show-calendar');
         if (showButton) {
-            showButton.addEventListener('click', showCalendar);
-            addDebugMessage('Обработчик кнопки добавлен');
+            showButton.addEventListener('click', function() {
+                var transportSelect = document.getElementById('id_transport');
+                if (!transportSelect || !transportSelect.value) {
+                    alert('Пожалуйста, выберите транспорт');
+                    return;
+                }
+                showCalendar(transportSelect.value);
+            });
+            addDebugMessage('Обработчик кнопки "Показать календарь" добавлен');
         } else {
-            addDebugMessage('Ошибка: кнопка не найдена');
+            addDebugMessage('Ошибка: кнопка "Показать календарь" не найдена');
+        }
+
+        // Добавляем обработчик для кнопки "Показать все"
+        var showAllButton = document.getElementById('show-all-calendar');
+        if (showAllButton) {
+            showAllButton.addEventListener('click', function() {
+                showCalendar('all');
+            });
+            addDebugMessage('Обработчик кнопки "Показать все" добавлен');
+        } else {
+            addDebugMessage('Ошибка: кнопка "Показать все" не найдена');
         }
     });
 </script>
@@ -187,6 +464,18 @@
 
 {% block content %}
 <div id="content-main">
+    <!-- Статистика -->
+    <div class="stats-container">
+        <div class="stat-item stat-total">
+            <span>Всего заявок: {{ total_rentals }}</span>
+        </div>
+        {% for status, data in stats.items %}
+            <div class="stat-item stat-{{ status }}">
+                <span>{{ data.display }}: {{ data.count }}</span>
+            </div>
+        {% endfor %}
+    </div>
+
     <div class="transport-select-wrapper">
         <select name="transport" id="id_transport" class="transport-field">
             <option value="">---------</option>
@@ -195,6 +484,7 @@
             {% endfor %}
         </select>
         <button type="button" id="show-calendar" class="show-calendar-btn">Показать календарь</button>
+        <button type="button" id="show-all-calendar" class="show-all-btn">Показать все заявки</button>
     </div>
 
     <div id="calendar-wrapper" style="display: none;">

@@ -7,6 +7,9 @@ from django.db.models import Q
 class Client(models.Model):
     full_name = models.CharField('ФИО', max_length=200)
     phone_number = PhoneNumberField('Телефон', unique=True)
+    passport_number = models.CharField('Номер паспорта', max_length=50, help_text="Номер паспорта", null=True, blank=True)
+    passport_issued_by = models.CharField('Кем выдан', max_length=200, help_text="Орган, выдавший паспорт", null=True, blank=True)
+    passport_issue_date = models.DateField('Дата выдачи', help_text="Дата выдачи паспорта", null=True, blank=True)
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
 
@@ -143,6 +146,33 @@ class RentalApplication(models.Model):
                 defaults={'full_name': self.full_name}
             )
             self.client = client
+        
+        # Обновляем данные клиента, если они изменились
+        if self.client:
+            updated = False
+            
+            # Обновляем имя, если оно изменилось
+            if self.client.full_name != self.full_name:
+                self.client.full_name = self.full_name
+                updated = True
+            
+            # Обновляем паспортные данные, если они есть в заявке
+            if self.passport_number and self.client.passport_number != self.passport_number:
+                self.client.passport_number = self.passport_number
+                updated = True
+            
+            if self.passport_issued_by and self.client.passport_issued_by != self.passport_issued_by:
+                self.client.passport_issued_by = self.passport_issued_by
+                updated = True
+            
+            if self.passport_issue_date and self.client.passport_issue_date != self.passport_issue_date:
+                self.client.passport_issue_date = self.passport_issue_date
+                updated = True
+            
+            # Сохраняем клиента, если были изменения
+            if updated:
+                self.client.save()
+        
         self.clean()
         
         # Создаем или обновляем событие в календаре
