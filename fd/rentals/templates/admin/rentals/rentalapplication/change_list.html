@@ -1,3 +1,11 @@
 {% extends "admin/change_list.html" %}
 {% load i18n admin_urls %}
+
+{% block object-tools-items %}
+    <li>
+        <a href="/admin/rentals/rentalapplication/analytics/" class="btn">Аналитика</a>
+    </li>
+    {{ block.super }}
+{% endblock %}
+
 {% block result_list %}{{ block.super }}{% if cl.result_count %}<div class="results-totals" style="margin-top: 20px; padding: 10px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;"><div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;"><div><strong>Итого:</strong><span style="float: right;">{{ total_cost }}</span></div></div></div>{% endif %}{% endblock result_list %} 

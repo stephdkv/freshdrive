@@ -1,0 +1,279 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css" rel="stylesheet">
+<style>
+    .calendar-container {
+        margin-top: 20px;
+        padding: 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        width: 100%;
+        min-height: 600px;
+    }
+    .fc {
+        width: 100%;
+        height: 600px;
+    }
+    .fc-event {
+        cursor: pointer;
+    }
+    .fc-event-title {
+        font-weight: bold;
+    }
+    .transport-select-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+    .show-calendar-btn {
+        padding: 8px 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
+    }
+    .show-calendar-btn:hover {
+        background-color: #0056b3;
+    }
+    #debug-info {
+        margin-top: 20px;
+        padding: 10px;
+        background: #f8f9fa;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .debug-message {
+        margin: 5px 0;
+        padding: 5px;
+        border-bottom: 1px solid #eee;
+    }
+    .debug-message:last-child {
+        border-bottom: none;
+    }
+    .fc .fc-daygrid-event {
+        z-index: 6;
+        margin-top: 3px;
+    }
+    .rental-tooltip {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        max-width: 300px;
+        z-index: 10000;
+        pointer-events: none;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    .rental-tooltip h4 {
+        margin: 0 0 8px 0;
+        font-size: 14px;
+        font-weight: bold;
+        color: #fff;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+        padding-bottom: 4px;
+    }
+    .rental-tooltip .tooltip-row {
+        display: flex;
+        justify-content: space-between;
+        margin: 4px 0;
+        line-height: 1.4;
+    }
+    .rental-tooltip .tooltip-label {
+        font-weight: bold;
+        color: #ccc;
+        margin-right: 10px;
+    }
+    .rental-tooltip .tooltip-value {
+        color: #fff;
+        text-align: right;
+    }
+    .rental-tooltip .status-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    .status-reserved { background-color: #ffc107; color: #000; }
+    .status-active { background-color: #28a745; color: #fff; }
+    .status-completed { background-color: #17a2b8; color: #fff; }
+    .status-cancelled { background-color: #dc3545; color: #fff; }
+</style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/locales-all.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        var calendar = null;
+        var tooltip = null;
+        function createTooltip() {
+            if (!tooltip) {
+                tooltip = document.createElement('div');
+                tooltip.className = 'rental-tooltip';
+                tooltip.style.display = 'none';
+                document.body.appendChild(tooltip);
+            }
+            console.log('createTooltip', tooltip);
+            return tooltip;
+        }
+        function showTooltip(event, mouseEvent) {
+            console.log('showTooltip', event);
+            var tooltip = createTooltip();
+            var eventData = event.event.extendedProps;
+            var title = event.event.title;
+            var end = event.event.end || event.event.start;
+            var endDate = end ? end.toLocaleDateString('ru-RU') : 'Не указано';
+            var statusColors = {
+                'reserved': 'status-reserved',
+                'active': 'status-active',
+                'completed': 'status-completed',
+                'cancelled': 'status-cancelled'
+            };
+            var statusClass = statusColors[eventData.status] || 'status-reserved';
+            var tooltipHtml = `
+                <h4>${title}</h4>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Статус:</span>
+                    <span class="tooltip-value"><span class="status-badge ${statusClass}">${eventData.status}</span></span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Транспорт:</span>
+                    <span class="tooltip-value">${eventData.transport || 'Не указан'}</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-label">Дата возврата:</span>
+                    <span class="tooltip-value">${endDate}</span>
+                </div>
+            `;
+            tooltip.innerHTML = tooltipHtml;
+            tooltip.style.display = 'block';
+            console.log('tooltip.style.display', tooltip.style.display);
+            var x = mouseEvent.pageX + 10;
+            var y = mouseEvent.pageY - 10;
+            var tooltipRect = tooltip.getBoundingClientRect();
+            var windowWidth = window.innerWidth;
+            var windowHeight = window.innerHeight;
+            if (x + tooltipRect.width > windowWidth) {
+                x = mouseEvent.pageX - tooltipRect.width - 10;
+            }
+            if (y + tooltipRect.height > windowHeight) {
+                y = mouseEvent.pageY - tooltipRect.height - 10;
+            }
+            tooltip.style.left = x + 'px';
+            tooltip.style.top = y + 'px';
+        }
+        function hideTooltip() {
+            if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+        }
+        function showCalendar(transportId) {
+            var calendarWrapper = document.getElementById('calendar-wrapper');
+            if (!calendarWrapper) return;
+            calendarWrapper.style.display = 'block';
+            if (calendar) calendar.destroy();
+            var calendarEl = document.getElementById('calendar');
+            if (!calendarEl) return;
+            calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                locale: 'ru',
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth'
+                },
+                dayMaxEvents: 2,
+                events: function(info, successCallback, failureCallback) {
+                    var url = '/rentals/admin/calendar/returns/events/?start=' + info.startStr + '&end=' + info.endStr;
+                    if (transportId && transportId !== 'all') {
+                        url += '&transport_id=' + transportId;
+                    } else {
+                        url += '&transport_id=all';
+                    }
+                    fetch(url)
+                        .then(response => response.json())
+                        .then(data => successCallback(data))
+                        .catch(error => failureCallback(error));
+                },
+                eventMouseEnter: function(info) {
+                    console.log('eventMouseEnter', info);
+                    showTooltip(info, info.jsEvent);
+                },
+                eventMouseLeave: function(info) {
+                    console.log('eventMouseLeave', info);
+                    hideTooltip();
+                },
+                eventClick: function(info) {
+                    hideTooltip();
+                    if (info.event.url) {
+                        window.location.href = info.event.url;
+                    }
+                }
+            });
+            calendar.render();
+        }
+        var showButton = document.getElementById('show-calendar');
+        if (showButton) {
+            showButton.addEventListener('click', function() {
+                var transportSelect = document.getElementById('id_transport');
+                if (!transportSelect || !transportSelect.value) {
+                    alert('Пожалуйста, выберите транспорт');
+                    return;
+                }
+                showCalendar(transportSelect.value);
+            });
+        }
+        var showAllButton = document.getElementById('show-all-calendar');
+        if (showAllButton) {
+            showAllButton.addEventListener('click', function() {
+                showCalendar('all');
+            });
+        }
+        // Автоматически показываем все возвраты при загрузке страницы
+        showCalendar('all');
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<nav>
+  <div class="breadcrumbs initialized" style="padding: 0;">
+    <span class="icon-arrow-left breadcrumbs-separator" style="margin-left: 0;"></span>
+    <a href="/rentals/admin/calendar/">Назад</a>
+  </div>
+</nav>
+<div id="content-main">
+    <h1 style="margin-bottom: 20px;">Календарь сдачи транспорта</h1>
+    <div class="transport-select-wrapper">
+        <select name="transport" id="id_transport" class="transport-field">
+            <option value="">---------</option>
+            {% for transport in transports %}
+                <option value="{{ transport.id }}">№{{ transport.number }} - {{ transport.name }} {{ transport.model }} ({{ transport.vin_number }})</option>
+            {% endfor %}
+        </select>
+        <button type="button" id="show-calendar" class="show-calendar-btn">Показать для выбранного транспорта</button>
+        <button type="button" id="show-all-calendar" class="show-calendar-btn" style="background:#28a745;">Показать все возвраты</button>
+    </div>
+    <div id="calendar-wrapper" style="display: block;">
+        <div id="calendar"></div>
+    </div>
+    <div id="debug-info" style="display:none;"></div>
+</div>
+{% endblock %} 

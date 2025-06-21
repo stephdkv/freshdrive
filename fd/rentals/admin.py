@@ -16,6 +16,8 @@ from django.utils.html import format_html
 from django.urls import path
 from django.shortcuts import render
 from urllib.parse import quote
+from django.contrib.admin.views.decorators import staff_member_required
+import json
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -357,6 +359,47 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             
         return response
 
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom_urls = [
+            path('analytics/', self.admin_site.admin_view(self.analytics_view), name='rentalapplication_analytics'),
+        ]
+        return custom_urls + urls
+
+    def analytics_view(self, request):
+        from django.db.models import Count, Sum
+        from .models import RentalApplication
+        import datetime
+        # Пример простой аналитики
+        total = RentalApplication.objects.count()
+        by_status = list(RentalApplication.objects.values('status').annotate(count=Count('id')).order_by('status'))
+        total_sum = RentalApplication.objects.aggregate(total=Sum('security_deposit'))['total']
+        # Топ-10 клиентов по количеству заявок
+        from .models import Client
+        top_clients = Client.objects.annotate(num=Count('rental_applications')).order_by('-num')[:10]
+        # Динамика по месяцам
+        months = []
+        now = datetime.date.today()
+        for i in range(11, -1, -1):
+            month = (now.replace(day=1) - datetime.timedelta(days=30*i)).replace(day=1)
+            months.append(month)
+        month_labels = [m.strftime('%Y-%m') for m in months]
+        month_counts = [RentalApplication.objects.filter(created_at__year=m.year, created_at__month=m.month).count() for m in months]
+        context = dict(
+            self.admin_site.each_context(request),
+            total=total,
+            by_status=json.dumps(by_status, ensure_ascii=False),
+            total_sum=total_sum,
+            top_clients=top_clients,
+            month_labels=json.dumps(month_labels, ensure_ascii=False),
+            month_counts=json.dumps(month_counts, ensure_ascii=False),
+            opts=self.model._meta,
+            title='Аналитика по заявкам',
+        )
+        from django.shortcuts import render
+        return render(request, 'admin/rentals/rentalapplication/analytics.html', context)
+
     class Media:
         css = {
             'all': (
@@ -457,6 +500,7 @@ class ClientAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.create_rental_view),
                 name='rentals_client_create_rental',
             ),
+            path('analytics/', self.admin_site.admin_view(self.analytics_view), name='client_analytics'),
         ]
         return custom_urls + urls
 
@@ -530,7 +574,7 @@ class ClientAdmin(admin.ModelAdmin):
                     </td>
                     <td style="padding: 8px; border: 1px solid #ddd;">{rental.calculate_total_cost():,} ₽</td>
                     <td style="padding: 8px; border: 1px solid #ddd;">
-                        <a href="/admin/rentals/rentalapplication/{rental.id}/change/" class="button" style="padding: 5px 10px; background: #417690; color: white; text-decoration: none; border-radius: 4px;">Просмотр</a>
+                        <a href="/admin/rentals/rentalapplication/{rental.id}/change/" class="button" style=" background: #417690; color: white; text-decoration: none; border-radius: 4px;">Просмотр</a>
                     </td>
                 </tr>
             '''
@@ -542,17 +586,46 @@ class ClientAdmin(admin.ModelAdmin):
             <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
                 <a href="/admin/rentals/client/{obj.id}/create-rental/" 
                    class="button" 
-                   style="padding: 8px 16px; background: #28a745; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                   style=" background: #28a745; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">
                     ➕ Создать новую заявку
                 </a>
-                <span style="margin-left: 10px; color: #666; font-size: 12px;">
-                    Создаст новую заявку с предзаполненными данными клиента
-                </span>
             </div>
         '''
         
         return format_html(html + create_button)
     get_rental_history.short_description = 'История заявок'
+
+    def analytics_view(self, request):
+        from django.db.models import Count
+        from .models import Client
+        import datetime
+        import json
+        # Всего клиентов
+        total = Client.objects.count()
+        # С паспортом
+        with_passport = Client.objects.exclude(passport_number__isnull=True).exclude(passport_number='').count()
+        # Топ-10 по количеству заявок
+        top_clients = Client.objects.annotate(num=Count('rental_applications')).order_by('-num')[:10]
+        # Динамика по месяцам (количество новых клиентов)
+        months = []
+        now = datetime.date.today()
+        for i in range(11, -1, -1):
+            month = (now.replace(day=1) - datetime.timedelta(days=30*i)).replace(day=1)
+            months.append(month)
+        month_labels = [m.strftime('%Y-%m') for m in months]
+        month_counts = [Client.objects.filter(created_at__year=m.year, created_at__month=m.month).count() for m in months]
+        context = dict(
+            self.admin_site.each_context(request),
+            total=total,
+            with_passport=with_passport,
+            top_clients=top_clients,
+            month_labels=json.dumps(month_labels, ensure_ascii=False),
+            month_counts=json.dumps(month_counts, ensure_ascii=False),
+            opts=self.model._meta,
+            title='Аналитика по клиентам',
+        )
+        from django.shortcuts import render
+        return render(request, 'admin/rentals/client/analytics.html', context)
 
     class Media:
         css = {
@@ -689,8 +762,60 @@ class CalendarAdmin(admin.ModelAdmin):
         extra_context['show_calendar_link'] = True
         return super().changelist_view(request, extra_context=extra_context)
 
-    class Media:
-        css = {
-            'all': ('admin/css/forms.css',)
-        }
-        js = ('admin/js/calendar.js',)
+@staff_member_required
+def return_calendar_view(request):
+    from .models import Transport, Calendar
+    transports = Transport.objects.all()
+    context = {
+        'transports': transports,
+        'title': 'Календарь сдачи транспорта',
+        'opts': Calendar._meta,
+    }
+    return render(request, 'admin/calendar_returns.html', context)
+
+@staff_member_required
+def return_calendar_events(request):
+    from .models import Calendar, RentalApplication
+    try:
+        transport_id = request.GET.get('transport_id')
+        start = request.GET.get('start')
+        end = request.GET.get('end')
+
+        events = Calendar.objects.all()
+        if transport_id and transport_id != 'all':
+            events = events.filter(transport_id=transport_id)
+        if start:
+            from datetime import datetime
+            start_date = datetime.strptime(start.split('T')[0], '%Y-%m-%d')
+            events = events.filter(end__date__gte=start_date.date())
+        if end:
+            from datetime import datetime
+            end_date = datetime.strptime(end.split('T')[0], '%Y-%m-%d')
+            events = events.filter(end__date__lte=end_date.date())
+
+        events_data = []
+        for event in events:
+            color = {
+                RentalApplication.STATUS_RESERVED: '#ffc107',
+                RentalApplication.STATUS_ACTIVE: '#28a745',
+                RentalApplication.STATUS_COMPLETED: '#17a2b8',
+                RentalApplication.STATUS_CANCELLED: '#dc3545',
+            }.get(event.status, '#6c757d')
+            title = f"Возврат: №{event.transport.number} - {event.transport.name} {event.transport.model} ({event.title})"
+            events_data.append({
+                'id': event.rental_application.id if event.rental_application else event.id,
+                'title': title,
+                'start': event.end.isoformat(),
+                'end': event.end.isoformat(),
+                'allDay': True,
+                'color': color,
+                'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,
+                'extendedProps': {
+                    'transport': f"№{event.transport.number} - {event.transport.name} {event.transport.model}",
+                    'transportNumber': event.transport.number,
+                    'status': event.status,
+                }
+            })
+        return JsonResponse(events_data, safe=False)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)

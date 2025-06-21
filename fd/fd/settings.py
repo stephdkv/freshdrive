@@ -33,6 +33,7 @@ ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
     'jet',  # Django Jet
+    'jet_django',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -60,6 +61,8 @@ JET_CHANGE_FORM_SIBLING_LINKS = True
 JET_INDEX_DASHBOARD = 'dashboard.CustomIndexDashboard'
 JET_APP_INDEX_DASHBOARD = 'dashboard.CustomAppIndexDashboard'
 JET_MODULE_INDEX_DASHBOARD = 'dashboard.CustomModuleIndexDashboard'
+JET_PROJECT = 'new_app_477'
+JET_TOKEN = 'e4f6fa06-9c6a-464b-82a9-f0ad5165a5c2'
 
 ROOT_URLCONF = 'fd.urls'
 

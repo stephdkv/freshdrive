@@ -1,0 +1,11 @@
+{% extends "admin/app_index.html" %}
+{% load i18n %}
+
+{% block content %}
+  <div style="margin-bottom: 24px;">
+    <a href="/rentals/admin/calendar/" class="btn btn-success" style="font-size:16px; padding:8px 20px; background:#28a745; color:#fff; border-radius:5px; text-decoration:none;">
+      📅 Календарь
+    </a>
+  </div>
+  {{ block.super }}
+{% endblock %} 
