@@ -114,15 +114,15 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
                    'get_daily_rate_display', 'get_discount_display', 'get_discount_amount_display',
-                   'get_security_deposit_display', 'get_total_cost_display')
-    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount')
+                   'get_security_deposit_display', 'get_total_cost_display', 'how_did_you_find_us')
+    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
     
     fieldsets = (
         ('Информация об арендаторе', {
-            'fields': ('client', 'full_name', 'phone_number')
+            'fields': ('client', 'full_name', 'phone_number', 'how_did_you_find_us')
         }),
         ('Детали аренды', {
             'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'discount', 'status')
@@ -136,7 +136,16 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return request.user.is_superuser
 
     def get_readonly_fields(self, request, obj=None):
-        if obj:  # editing an existing object
+        # Менеджер может менять только transport и status
+        if obj and request.user.groups.filter(name='Manager').exists() and not request.user.is_superuser:
+            editable = {'transport', 'status'}
+            all_fields = set(f.name for f in self.model._meta.fields)
+            readonly = list(all_fields - editable)
+            # created_at и updated_at тоже должны быть readonly
+            readonly += ['created_at', 'updated_at']
+            return readonly
+        # Для суперпользователя только created_at и updated_at readonly при редактировании
+        if obj and request.user.is_superuser:
             return ('created_at', 'updated_at')
         return ()
 
@@ -461,6 +470,9 @@ class ClientAdmin(admin.ModelAdmin):
                 params['passport_issued_by'] = quote(client.passport_issued_by)
             if client.passport_issue_date:
                 params['passport_issue_date'] = client.passport_issue_date.strftime('%Y-%m-%d')
+            # Добавляем how_did_you_find_us, если есть
+            if client.how_did_you_find_us:
+                params['how_did_you_find_us'] = quote(client.how_did_you_find_us)
             
             # Собираем URL с параметрами
             param_string = '&'.join([f'{k}={v}' for k, v in params.items()])
@@ -478,7 +490,7 @@ class ClientAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Основная информация', {
-            'fields': ('full_name', 'phone_number')
+            'fields': ('full_name', 'phone_number', 'how_did_you_find_us')
         }),
         ('Паспортные данные', {
             'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date'),
@@ -525,6 +537,9 @@ class ClientAdmin(admin.ModelAdmin):
                 params['passport_issued_by'] = quote(client.passport_issued_by)
             if client.passport_issue_date:
                 params['passport_issue_date'] = client.passport_issue_date.strftime('%Y-%m-%d')
+            # Добавляем how_did_you_find_us, если есть
+            if client.how_did_you_find_us:
+                params['how_did_you_find_us'] = quote(client.how_did_you_find_us)
             
             # Собираем URL с параметрами
             param_string = '&'.join([f'{k}={v}' for k, v in params.items()])

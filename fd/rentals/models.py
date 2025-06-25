@@ -4,6 +4,16 @@ from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 
+# Варианты для поля "Откуда о нас узнали"
+HOW_DID_YOU_FIND_US_CHOICES = [
+    ("friends", "От друзей / знакомых"),
+    ("internet", "Из интернета / через поиск (Google, Яндекс)"),
+    ("ads", "Увидел рекламу"),
+    ("repeat_customer", "У вас брал услугу раньше / уже был клиентом"),
+    ("catalog", "Нашли вас в каталоге / на картах (Google Maps, 2ГИС, Яндекс.Справочник)"),
+    ("other", "Другое"),
+]
+
 class Client(models.Model):
     full_name = models.CharField('ФИО', max_length=200)
     phone_number = PhoneNumberField('Телефон', unique=True)
@@ -12,6 +22,14 @@ class Client(models.Model):
     passport_issue_date = models.DateField('Дата выдачи', help_text="Дата выдачи паспорта", null=True, blank=True)
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+    how_did_you_find_us = models.CharField(
+        "Откуда о нас узнали",
+        max_length=32,
+        choices=HOW_DID_YOU_FIND_US_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Как клиент узнал о нас"
+    )
 
     def __str__(self):
         return f"{self.full_name} ({self.phone_number})"
@@ -109,6 +127,14 @@ class RentalApplication(models.Model):
         default=STATUS_RESERVED,
         help_text="Текущий статус заявки"
     )
+    how_did_you_find_us = models.CharField(
+        "Откуда о нас узнали",
+        max_length=32,
+        choices=HOW_DID_YOU_FIND_US_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Как клиент узнал о нас"
+    )
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
   
@@ -167,6 +193,11 @@ class RentalApplication(models.Model):
             
             if self.passport_issue_date and self.client.passport_issue_date != self.passport_issue_date:
                 self.client.passport_issue_date = self.passport_issue_date
+                updated = True
+            
+            # Обновляем поле how_did_you_find_us, если оно есть в заявке и отличается
+            if self.how_did_you_find_us and self.client.how_did_you_find_us != self.how_did_you_find_us:
+                self.client.how_did_you_find_us = self.how_did_you_find_us
                 updated = True
             
             # Сохраняем клиента, если были изменения

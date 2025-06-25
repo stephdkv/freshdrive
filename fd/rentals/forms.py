@@ -34,6 +34,12 @@ class RentalApplicationForm(forms.ModelForm):
             # Делаем поле transport необязательным при редактировании
             self.fields['transport'].required = False
             
+            # Если даты не пришли из формы, берем их из instance
+            if not (start_date and end_date):
+                if self.instance.rental_start_date and self.instance.rental_end_date:
+                    start_date = self.instance.rental_start_date
+                    end_date = self.instance.rental_end_date
+
             if start_date and end_date:
                 # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
                 # Исключаем отмененные заявки и текущую заявку
@@ -68,9 +74,12 @@ class RentalApplicationForm(forms.ModelForm):
                 self.fields['transport'].queryset = Transport.objects.all()
             
         # Добавляем класс для стилизации
-        self.fields['rental_start_date'].widget.attrs.update({'class': 'date-field vDateField'})
-        self.fields['rental_end_date'].widget.attrs.update({'class': 'date-field vDateField'})
-        self.fields['transport'].widget.attrs.update({'class': 'transport-field'})
+        if 'rental_start_date' in self.fields:
+            self.fields['rental_start_date'].widget.attrs.update({'class': 'date-field vDateField'})
+        if 'rental_end_date' in self.fields:
+            self.fields['rental_end_date'].widget.attrs.update({'class': 'date-field vDateField'})
+        if 'transport' in self.fields:
+            self.fields['transport'].widget.attrs.update({'class': 'transport-field'})
 
     def clean(self):
         cleaned_data = super().clean()
@@ -92,4 +101,7 @@ class RentalApplicationForm(forms.ModelForm):
 
     class Meta:
         model = RentalApplication
-        fields = '__all__' 
+        fields = '__all__'
+        widgets = {
+            'how_did_you_find_us': forms.Select(),
+        } 
