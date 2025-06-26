@@ -232,7 +232,109 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             application.change_status(RentalApplication.STATUS_CANCELLED)
     make_cancelled.short_description = "Отметить как отмененные"
 
-    actions = ['generate_contract', 'make_active', 'make_completed', 'make_cancelled']
+    def complete_early_and_print_addendum(self, request, queryset):
+        """Досрочно завершить аренду и распечатать Дополнение к договору (return.docx)"""
+        if queryset.count() != 1:
+            self.message_user(request, "Выберите одну активную заявку для досрочного завершения.", level='error')
+            return
+        application = queryset.first()
+        if application.status != RentalApplication.STATUS_ACTIVE:
+            self.message_user(request, "Досрочно завершить можно только активную аренду!", level='error')
+            return
+        try:
+            application.complete_early()
+        except Exception as e:
+            self.message_user(request, f"Ошибка: {e}", level='error')
+            return
+        return self.generate_return_addendum(request, application)
+    complete_early_and_print_addendum.short_description = "Досрочно завершить и распечатать Дополнение"
+
+    def generate_return_addendum(self, request, application):
+        """Генерирует и возвращает Дополнение к договору (return.docx)"""
+        import io
+        from docx import Document
+        import os
+        from django.conf import settings
+        from django.http import HttpResponse
+        from django.template.defaultfilters import date as _date
+        from datetime import datetime
+        # Путь к шаблону
+        template_path = os.path.join(settings.BASE_DIR, 'rentals', 'templates', 'contracts', 'return.docx')
+        doc = Document(template_path)
+        transport = application.transport
+        # Фактические значения для доп. соглашения
+        actual_return_date = application.rental_end_date
+        actual_rental_days = application.get_rental_days()
+        actual_cost = application.calculate_total_cost()
+        # Для возврата: если был внесен депозит, и actual_cost < изначальной суммы, считаем возврат
+        # (допустим, изначальная сумма = application.total_cost_before_early, если нужно — добавить в модель)
+        # Здесь просто считаем разницу между старой и новой суммой, если нужно
+        refund_amount = 0
+        if application.original_total_cost:
+            refund_amount = max(0, int(application.original_total_cost) - int(actual_cost))
+        # Если нет — не выводим
+        context = {
+            'full_name': application.full_name,
+            'phone_number': application.phone_number,
+            'color': transport.color,
+            'passport_number': application.passport_number,
+            'passport_issued_by': application.passport_issued_by,
+            'passport_issue_date': _date(application.passport_issue_date, "d.m.Y"),
+            'rental_start_date': _date(application.rental_start_date, "d.m.Y"),
+            'rental_end_date': _date(application.rental_end_date, "d.m.Y"),
+            'transport_model': f"№{transport.number} - {transport.name} {transport.model}",
+            'registration_number': transport.registration_number,
+            'vin_number': transport.vin_number,
+            'rental_days': application.get_rental_days(),
+            'rate_type': application.get_rate_type(),
+            'daily_rate': application.get_daily_rate(),
+            'total_cost': application.calculate_total_cost(),
+            'security_deposit': int(application.security_deposit),
+            'today_date': datetime.now().strftime("%d.%m.%Y"),
+            # Новые поля:
+            'actual_return_date': _date(actual_return_date, "d.m.Y"),
+            'actual_rental_days': actual_rental_days,
+            'actual_cost': actual_cost,
+            'refund_amount': refund_amount,
+        }
+        # Замена плейсхолдеров
+        for paragraph in doc.paragraphs:
+            text = paragraph.text
+            for key, value in context.items():
+                placeholder = f"{{{{ {key} }}}}"
+                if placeholder in text:
+                    text = text.replace(placeholder, str(value))
+            if text != paragraph.text:
+                for run in paragraph.runs:
+                    run.text = ""
+                if paragraph.runs:
+                    paragraph.runs[0].text = text
+                else:
+                    paragraph.add_run(text)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        text = paragraph.text
+                        for key, value in context.items():
+                            placeholder = f"{{{{ {key} }}}}"
+                            if placeholder in text:
+                                text = text.replace(placeholder, str(value))
+                        if text != paragraph.text:
+                            for run in paragraph.runs:
+                                run.text = ""
+                            if paragraph.runs:
+                                paragraph.runs[0].text = text
+                            else:
+                                paragraph.add_run(text)
+        f = io.BytesIO()
+        doc.save(f)
+        f.seek(0)
+        filename = f"Дополнение к договору - {application.full_name} от {datetime.now().strftime('%d.%m.%Y')}.docx"
+        encoded_filename = filename.encode('utf-8').decode('latin-1')
+        response = HttpResponse(f.read(), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+        response['Content-Disposition'] = f'attachment; filename=\"{encoded_filename}\"'
+        return response
 
     def generate_contract(self, request, queryset):
         # Проверяем права на генерацию договора
@@ -247,6 +349,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         transport = application.transport
 
         # Загрузка шаблона
+        template_path = os.path.join(settings.BASE_DIR, 'rentals', 'templates', 'contracts', 'rental_contract_template.docx')
         doc = Document(template_path)
 
         # Замена всех {{ ... }} на реальные значения
@@ -272,21 +375,14 @@ class RentalApplicationAdmin(admin.ModelAdmin):
 
         # Проходим по всем параграфам
         for paragraph in doc.paragraphs:
-            # Получаем текст всего параграфа
             text = paragraph.text
-            # Проверяем, есть ли в параграфе плейсхолдеры
             for key, value in context.items():
                 placeholder = f"{{{{ {key} }}}}"
                 if placeholder in text:
-                    # Заменяем плейсхолдер на значение
                     text = text.replace(placeholder, str(value))
-            
-            # Если были замены, обновляем текст параграфа
             if text != paragraph.text:
-                # Очищаем параграф
                 for run in paragraph.runs:
                     run.text = ""
-                # Добавляем новый текст с сохранением форматирования первого run
                 if paragraph.runs:
                     paragraph.runs[0].text = text
                 else:
@@ -302,12 +398,9 @@ class RentalApplicationAdmin(admin.ModelAdmin):
                             placeholder = f"{{{{ {key} }}}}"
                             if placeholder in text:
                                 text = text.replace(placeholder, str(value))
-                        
                         if text != paragraph.text:
-                            # Очищаем параграф
                             for run in paragraph.runs:
                                 run.text = ""
-                            # Добавляем новый текст с сохранением форматирования первого run
                             if paragraph.runs:
                                 paragraph.runs[0].text = text
                             else:
@@ -317,17 +410,14 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         f = io.BytesIO()
         doc.save(f)
         f.seek(0)
-        
-        # Формируем имя файла
         filename = f"Договор аренды - {application.full_name} от {datetime.now().strftime('%d.%m.%Y')}.docx"
-        # Кодируем имя файла для корректного отображения русских букв
         encoded_filename = filename.encode('utf-8').decode('latin-1')
-        
         response = HttpResponse(f.read(), content_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
         response['Content-Disposition'] = f'attachment; filename="{encoded_filename}"'
         return response
-
     generate_contract.short_description = "Печать договора аренды"
+
+    actions = ['generate_contract', 'make_active', 'make_completed', 'make_cancelled', 'complete_early_and_print_addendum']
 
     def get_colored_status(self, obj):
         status_classes = {

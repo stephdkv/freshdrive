@@ -137,6 +137,7 @@ class RentalApplication(models.Model):
     )
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+    original_total_cost = models.DecimalField('Исходная сумма аренды', max_digits=10, decimal_places=0, null=True, blank=True, help_text='Сумма аренды до досрочного возврата (для внутреннего пользования)')
   
     def clean(self):
         """Валидация заявки на аренду"""
@@ -205,6 +206,10 @@ class RentalApplication(models.Model):
                 self.client.save()
         
         self.clean()
+        
+        # Сохраняем исходную сумму аренды при первом переводе в статус Активная
+        if self.status == self.STATUS_ACTIVE and not self.original_total_cost:
+            self.original_total_cost = self.calculate_total_cost()
         
         # Создаем или обновляем событие в календаре
         is_new = self.pk is None
@@ -312,6 +317,20 @@ class RentalApplication(models.Model):
         verbose_name = "Заявка на аренду"
         verbose_name_plural = "Заявки на аренду"
         ordering = ['-created_at'] 
+
+    def complete_early(self, new_end_date=None):
+        """Досрочно завершить аренду, пересчитать сумму и сменить статус на Завершенная. new_end_date — дата возврата (по умолчанию сегодня)."""
+        if self.status != self.STATUS_ACTIVE:
+            raise ValueError('Досрочно завершить можно только активную аренду!')
+        if not new_end_date:
+            from datetime import date
+            new_end_date = date.today()
+        if new_end_date < self.rental_start_date:
+            raise ValueError('Дата возврата не может быть раньше даты начала аренды!')
+        self.rental_end_date = new_end_date
+        self.status = self.STATUS_COMPLETED
+        self.save()
+        return True
 
 class Calendar(models.Model):
     transport = models.ForeignKey(Transport, verbose_name='Транспорт', on_delete=models.CASCADE, related_name='calendar_events')

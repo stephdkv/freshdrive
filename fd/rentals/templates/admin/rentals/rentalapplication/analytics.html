@@ -1,79 +1,106 @@
-{% extends "admin/base_site.html" %}
-{% load i18n %}
-{% load static %}
-
-{% block extrahead %}
-{{ block.super }}
+{% extends "admin/base_site.html" %} {% load i18n %} {% load static %} {% block
+extrahead %} {{ block.super }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-{% endblock %}
-
-{% block content %}
+{% endblock %} {% block content %}
 <h1>Аналитика по заявкам</h1>
-<div style="margin-bottom: 20px;">
-    <strong>Всего заявок:</strong> {{ total }}<br>
-    <strong>Сумма депозитов:</strong> {{ total_sum|default:0 }} ₽
+<div style="margin-bottom: 20px">
+  <strong>Всего заявок:</strong> {{ total }}<br />
+  <strong>Сумма депозитов:</strong> {{ total_sum|default:0 }} ₽
 </div>
 <div>
-    <h3>Заявки по статусам:</h3>
-    <canvas id="statusChart" width="400" height="180" style="max-width:400px;"></canvas>
-    <script id="status-data" type="application/json">{{ by_status|safe }}</script>
+  <h3>Заявки по статусам:</h3>
+  <canvas
+    id="statusChart"
+    width="400"
+    height="180"
+    style="max-width: 400px"
+  ></canvas>
+  <script id="status-data" type="application/json">
+    {{ by_status|safe }}
+  </script>
 </div>
-<div style="margin-top: 40px;">
-    <h3>Динамика заявок по месяцам</h3>
-    <canvas id="monthChart" width="400" height="180" style="max-width:400px;"></canvas>
-    <script id="month-labels" type="application/json">{{ month_labels|safe }}</script>
-    <script id="month-counts" type="application/json">{{ month_counts|safe }}</script>
+<div style="margin-top: 40px">
+  <h3>Динамика заявок по месяцам</h3>
+  <canvas
+    id="monthChart"
+    width="400"
+    height="180"
+    style="max-width: 400px"
+  ></canvas>
+  <script id="month-labels" type="application/json">
+    {{ month_labels|safe }}
+  </script>
+  <script id="month-counts" type="application/json">
+    {{ month_counts|safe }}
+  </script>
 </div>
-<div style="margin-top: 40px;">
-    <h3>Топ клиентов по количеству заявок</h3>
-    <ol>
-        {% for client in top_clients %}
-            <li>{{ client.full_name }} ({{ client.phone_number }}) — {{ client.num }} заявок</li>
-        {% empty %}
-            <li>Нет данных</li>
-        {% endfor %}
-    </ol>
+<div style="margin-top: 40px">
+  <h3>Топ клиентов по количеству заявок</h3>
+  <ol>
+    {% for client in top_clients %}
+    <li>
+      {{ client.full_name }} ({{ client.phone_number }}) — {{ client.num }}
+      заявок
+    </li>
+    {% empty %}
+    <li>Нет данных</li>
+    {% endfor %}
+  </ol>
 </div>
 <script>
-// График по статусам
-const statusRaw = JSON.parse(document.getElementById('status-data').textContent);
-const statusLabels = statusRaw.map(s => s.status);
-const statusCounts = statusRaw.map(s => s.count);
-const statusData = {
+  // График по статусам
+  const statusRaw = JSON.parse(
+    document.getElementById("status-data").textContent
+  );
+  const statusLabels = statusRaw.map((s) => s.status);
+  const statusCounts = statusRaw.map((s) => s.count);
+  const statusData = {
     labels: statusLabels,
-    datasets: [{
-        label: 'Заявки',
+    datasets: [
+      {
+        label: "Заявки",
         data: statusCounts,
         backgroundColor: [
-            '#ffc107', '#28a745', '#17a2b8', '#dc3545', '#6c757d'
+          "#ffc107",
+          "#28a745",
+          "#17a2b8",
+          "#dc3545",
+          "#6c757d",
         ],
-    }]
-};
-const statusCtx = document.getElementById('statusChart').getContext('2d');
-new Chart(statusCtx, {
-    type: 'doughnut',
+      },
+    ],
+  };
+  const statusCtx = document.getElementById("statusChart").getContext("2d");
+  new Chart(statusCtx, {
+    type: "doughnut",
     data: statusData,
-    options: {responsive: true}
-});
-// Динамика по месяцам
-const monthLabels = JSON.parse(document.getElementById('month-labels').textContent);
-const monthCounts = JSON.parse(document.getElementById('month-counts').textContent);
-if (monthLabels.length && monthCounts.length) {
-    const monthCtx = document.getElementById('monthChart').getContext('2d');
+    options: { responsive: true },
+  });
+  // Динамика по месяцам
+  const monthLabels = JSON.parse(
+    document.getElementById("month-labels").textContent
+  );
+  const monthCounts = JSON.parse(
+    document.getElementById("month-counts").textContent
+  );
+  if (monthLabels.length && monthCounts.length) {
+    const monthCtx = document.getElementById("monthChart").getContext("2d");
     new Chart(monthCtx, {
-        type: 'line',
-        data: {
-            labels: monthLabels,
-            datasets: [{
-                label: 'Заявок',
-                data: monthCounts,
-                borderColor: '#007bff',
-                backgroundColor: 'rgba(0,123,255,0.1)',
-                fill: true
-            }]
-        },
-        options: {responsive: true}
+      type: "line",
+      data: {
+        labels: monthLabels,
+        datasets: [
+          {
+            label: "Заявок",
+            data: monthCounts,
+            borderColor: "#007bff",
+            backgroundColor: "rgba(0,123,255,0.1)",
+            fill: true,
+          },
+        ],
+      },
+      options: { responsive: true },
     });
-}
+  }
 </script>
-{% endblock %} 
+{% endblock %}
