@@ -82,7 +82,7 @@ class Transport(models.Model):
         return True, "Транспорт доступен в указанные даты"
     
     def __str__(self):
-        return f"№{self.number} - {self.name} {self.model} ({self.vin_number})"
+        return f"№{self.number} - {self.name} {self.model}"
     
     class Meta:
         verbose_name = "Транспорт"
@@ -117,8 +117,8 @@ class RentalApplication(models.Model):
     passport_issued_by = models.CharField('Кем выдан', max_length=200, help_text="Орган, выдавший паспорт", null=True, blank=True)
     passport_issue_date = models.DateField('Дата выдачи', help_text="Дата выдачи паспорта", null=True, blank=True)
     transport = models.ForeignKey(Transport, verbose_name='Транспорт', on_delete=models.PROTECT, related_name='rental_applications')
-    security_deposit = models.DecimalField('Обеспечительный платеж', max_digits=10, decimal_places=0, default=0,
-                                         help_text="Сумма обеспечительного платежа", null=True, blank=True)
+    security_deposit = models.DecimalField('Залог', max_digits=10, decimal_places=0, default=0,
+                                         help_text="Сумма Залога", null=True, blank=True)
     discount = models.IntegerField('Скидка', choices=DISCOUNT_CHOICES, default=0, help_text="Скидка на аренду")
     status = models.CharField(
         'Статус',
@@ -242,13 +242,16 @@ class RentalApplication(models.Model):
     
     def get_rental_days(self):
         """Вычисляет количество дней аренды"""
+        if not self.rental_start_date or not self.rental_end_date:
+            return 0
         delta = self.rental_end_date - self.rental_start_date
         return delta.days  # Убираем +1, так как нам нужны только полные сутки
     
     def get_daily_rate(self):
         """Определяет тариф за сутки в зависимости от длительности аренды"""
         days = self.get_rental_days()
-        
+        if not self.transport or days <= 0:
+            return 0
         if days <= 2:
             return int(self.transport.price_per_day)
         elif 3 <= days <= 6:
@@ -260,13 +263,21 @@ class RentalApplication(models.Model):
     
     def calculate_total_cost(self):
         """Вычисляет общую стоимость аренды с учетом скидки"""
-        base_cost = int(self.get_daily_rate() * self.get_rental_days())
+        daily_rate = self.get_daily_rate()
+        days = self.get_rental_days()
+        if daily_rate == 0 or days == 0:
+            return 0
+        base_cost = int(daily_rate * days)
         discount_amount = base_cost * (self.discount / 100)
         return int(base_cost - discount_amount)
     
     def get_discount_amount(self):
         """Возвращает сумму скидки"""
-        base_cost = int(self.get_daily_rate() * self.get_rental_days())
+        daily_rate = self.get_daily_rate()
+        days = self.get_rental_days()
+        if daily_rate == 0 or days == 0:
+            return 0
+        base_cost = int(daily_rate * days)
         return int(base_cost * (self.discount / 100))
     
     def get_rate_type(self):

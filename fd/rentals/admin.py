@@ -8,7 +8,7 @@ from django.template.defaultfilters import date as _date
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.admin import UserAdmin
 from django.core.exceptions import PermissionDenied
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Avg, Count
 import io
 import os
 from datetime import datetime, date, timedelta
@@ -18,6 +18,7 @@ from django.shortcuts import render
 from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 import json
+from django.db import models
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -52,9 +53,13 @@ class CustomUserAdmin(UserAdmin):
         )
 
     def get_readonly_fields(self, request, obj=None):
-        if not request.user.is_superuser:
-            return ('is_staff', 'is_superuser', 'user_permissions')
-        return super().get_readonly_fields(request, obj)
+        base = super().get_readonly_fields(request, obj)
+        extra = ('total_cost_display', 'rental_days_display', 'daily_rate_display')
+        if obj:
+            if isinstance(base, (list, tuple)):
+                return tuple(base) + extra
+            return extra
+        return base
 
 # Отменяем регистрацию стандартного GroupAdmin, так как он нам не нужен
 # admin.site.unregister(Group)
@@ -112,94 +117,54 @@ class TransportAdmin(admin.ModelAdmin):
 class RentalApplicationAdmin(admin.ModelAdmin):
     form = RentalApplicationForm
     list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
-                   'rental_end_date', 'get_rental_days_display', 'get_rate_type_display',
-                   'get_daily_rate_display', 'get_discount_display', 'get_discount_amount_display',
+                   'rental_end_date', 'rental_days_display', 'get_rate_type_display',
+                   'daily_rate_display', 'get_discount_display', 'get_discount_amount_display',
                    'get_security_deposit_display', 'get_total_cost_display', 'how_did_you_find_us')
     list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
+    list_per_page = 12
     
-    fieldsets = (
-        ('Информация об арендаторе', {
-            'fields': ('client', 'full_name', 'phone_number', 'how_did_you_find_us')
-        }),
-        ('Детали аренды', {
-            'fields': ('rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'discount', 'status')
-        }),
-        ('Паспортные данные', {
-            'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date')
-        }),
-    )
+    def get_fieldsets(self, request, obj=None):
+        base_fields = (
+            'rental_start_date', 'rental_end_date', 'transport', 'security_deposit', 'discount', 'status',
+        )
+        if obj:
+            details_fields = base_fields + (
+                'total_cost_display', 'rental_days_display', 'daily_rate_display',
+            )
+        else:
+            details_fields = base_fields
+        return (
+            ('Информация об арендаторе', {
+                'fields': ('client', 'full_name', 'phone_number', 'how_did_you_find_us')
+            }),
+            ('Детали аренды', {
+                'fields': details_fields
+            }),
+            ('Паспортные данные', {
+                'fields': ('passport_number', 'passport_issued_by', 'passport_issue_date')
+            }),
+        )
 
-    def has_delete_permission(self, request, obj=None):
-        return request.user.is_superuser
+    readonly_fields = ('total_cost_display', 'rental_days_display', 'daily_rate_display')
 
-    def get_readonly_fields(self, request, obj=None):
-        # Менеджер может менять только transport и status
-        if obj and request.user.groups.filter(name='Manager').exists() and not request.user.is_superuser:
-            editable = {'transport', 'status'}
-            all_fields = set(f.name for f in self.model._meta.fields)
-            readonly = list(all_fields - editable)
-            # created_at и updated_at тоже должны быть readonly
-            readonly += ['created_at', 'updated_at']
-            return readonly
-        # Для суперпользователя только created_at и updated_at readonly при редактировании
-        if obj and request.user.is_superuser:
-            return ('created_at', 'updated_at')
-        return ()
+    def total_cost_display(self, obj):
+        return format_html('<span style="color: #28a745; font-weight: bold;">{} ₽</span>', f"{obj.calculate_total_cost():,}")
+    total_cost_display.short_description = 'Общая стоимость'
 
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        
-        # Если это создание новой заявки и есть параметры клиента в URL
-        if not obj and request.method == 'GET':
-            client_id = request.GET.get('client_id')
-            full_name = request.GET.get('full_name')
-            phone_number = request.GET.get('phone_number')
-            passport_number = request.GET.get('passport_number')
-            passport_issued_by = request.GET.get('passport_issued_by')
-            passport_issue_date = request.GET.get('passport_issue_date')
-            
-            if client_id and full_name and phone_number:
-                # Предзаполняем поля данными клиента
-                form.base_fields['full_name'].initial = full_name
-                form.base_fields['phone_number'].initial = phone_number
-                
-                # Предзаполняем паспортные данные, если они есть
-                if passport_number:
-                    form.base_fields['passport_number'].initial = passport_number
-                if passport_issued_by:
-                    form.base_fields['passport_issued_by'].initial = passport_issued_by
-                if passport_issue_date:
-                    try:
-                        from datetime import datetime
-                        date_obj = datetime.strptime(passport_issue_date, '%Y-%m-%d').date()
-                        form.base_fields['passport_issue_date'].initial = date_obj
-                    except ValueError:
-                        pass
-                
-                # Устанавливаем клиента
-                try:
-                    from .models import Client
-                    client = Client.objects.get(id=client_id)
-                    form.base_fields['client'].initial = client
-                except Client.DoesNotExist:
-                    pass
-        
-        return form
+    def rental_days_display(self, obj):
+        return format_html('<span style="color: #28a745; font-weight: bold;">{} суток</span>', obj.get_rental_days())
+    rental_days_display.short_description = 'Количество суток'
 
-    def get_rental_days_display(self, obj):
-        return f"{obj.get_rental_days()} дн."
-    get_rental_days_display.short_description = 'Срок аренды'
+    def daily_rate_display(self, obj):
+        return format_html('<span style="color: #28a745; font-weight: bold;">{} ₽/день</span>', f"{obj.get_daily_rate():,}")
+    daily_rate_display.short_description = 'Стоимость в сутки'
 
     def get_rate_type_display(self, obj):
         return obj.get_rate_type()
     get_rate_type_display.short_description = 'Тип тарифа'
-
-    def get_daily_rate_display(self, obj):
-        return f"{obj.get_daily_rate():,} ₽/день"
-    get_daily_rate_display.short_description = 'Тариф'
 
     def get_discount_display(self, obj):
         return f"{obj.discount}%"
@@ -215,7 +180,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
 
     def get_security_deposit_display(self, obj):
         return f"{int(obj.security_deposit):,} ₽"
-    get_security_deposit_display.short_description = 'Обеспечительный платеж'
+    get_security_deposit_display.short_description = 'Залог'
     
     def make_active(self, request, queryset):
         for application in queryset:
@@ -467,24 +432,82 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def analytics_view(self, request):
-        from django.db.models import Count, Sum
-        from .models import RentalApplication
-        import datetime
+        from django.db.models import Count, Sum, Avg, Q
+        from .models import RentalApplication, Transport, Client
         # Пример простой аналитики
         total = RentalApplication.objects.count()
-        by_status = list(RentalApplication.objects.values('status').annotate(count=Count('id')).order_by('status'))
+        by_status_raw = list(RentalApplication.objects.values('status').annotate(count=Count('id')).order_by('status'))
+        status_map = dict(RentalApplication.STATUS_CHOICES)
+        by_status = [
+            {'status': status_map.get(item['status'], item['status']), 'count': item['count']}
+            for item in by_status_raw
+        ]
         total_sum = RentalApplication.objects.aggregate(total=Sum('security_deposit'))['total']
         # Топ-10 клиентов по количеству заявок
-        from .models import Client
         top_clients = Client.objects.annotate(num=Count('rental_applications')).order_by('-num')[:10]
         # Динамика по месяцам
         months = []
-        now = datetime.date.today()
+        now = date.today()
         for i in range(11, -1, -1):
-            month = (now.replace(day=1) - datetime.timedelta(days=30*i)).replace(day=1)
+            month = (now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
             months.append(month)
         month_labels = [m.strftime('%Y-%m') for m in months]
         month_counts = [RentalApplication.objects.filter(created_at__year=m.year, created_at__month=m.month).count() for m in months]
+        # 1. Средняя продолжительность аренды (в днях)
+        all_apps = RentalApplication.objects.exclude(rental_start_date__isnull=True).exclude(rental_end_date__isnull=True)
+        if all_apps.exists():
+            days_list = [(app.rental_end_date - app.rental_start_date).days for app in all_apps if app.rental_end_date and app.rental_start_date]
+            mean_days = round(sum(days_list) / len(days_list), 1) if days_list else 0
+        else:
+            mean_days = 0
+        # 2. Средний чек
+        mean_total_cost = RentalApplication.objects.aggregate(avg_cost=Avg('original_total_cost'))['avg_cost']
+        if mean_total_cost is None:
+            mean_total_cost = 0
+        # 3. Топ-5 транспортов
+        top_transports = list(RentalApplication.objects.values('transport__name', 'transport__model').annotate(num=Count('id')).order_by('-num')[:5])
+        # 4. Источники заявок
+        sources = list(RentalApplication.objects.values('how_did_you_find_us').annotate(num=Count('id')).order_by('-num'))
+        sources_map = dict(getattr(RentalApplication, 'HOW_DID_YOU_FIND_US_CHOICES', []))
+        for s in sources:
+            code = s.get('how_did_you_find_us')
+            if code == 'friends':
+                s['how_did_you_find_us'] = 'От друзей / знакомых'
+            elif code == 'internet':
+                s['how_did_you_find_us'] = 'Из интернета / через поиск (Google, Яндекс)'
+            elif code == 'ads':
+                s['how_did_you_find_us'] = 'Увидел рекламу'
+            elif code == 'repeat_customer':
+                s['how_did_you_find_us'] = 'У вас брал услугу раньше / уже был клиентом'
+            elif code == 'catalog':
+                s['how_did_you_find_us'] = 'Нашли вас в каталоге / на картах (Google Maps, 2ГИС, Яндекс.Справочник)'
+            elif code == 'other':
+                s['how_did_you_find_us'] = 'Другое'
+            elif code in (None, '', 'none', 'null'):
+                s['how_did_you_find_us'] = 'Не указано'
+            else:
+                s['how_did_you_find_us'] = str(code)
+        # 5. Динамика новых клиентов
+        new_clients_counts = []
+        for m in months:
+            count = Client.objects.filter(created_at__year=m.year, created_at__month=m.month).count()
+            new_clients_counts.append(count)
+        new_clients_months = month_labels
+        # 6. Процент заявок со скидкой
+        discount_count = RentalApplication.objects.exclude(discount=0).count()
+        discount_percent = round((discount_count / total) * 100, 1) if total else 0
+        no_discount_count = total - discount_count
+        now = datetime.now()
+        month_apps = RentalApplication.objects.filter(
+            created_at__year=now.year, created_at__month=now.month
+        )
+        month_earned = month_apps.aggregate(total=models.Sum('original_total_cost'))['total'] or 0
+        month_count = month_apps.count()
+        top_transport_month_query = month_apps.values('transport__name', 'transport__model').annotate(num=Count('id')).order_by('-num').first()
+        if top_transport_month_query:
+            top_transport_month = f"{top_transport_month_query['transport__name']} {top_transport_month_query['transport__model']}"
+        else:
+            top_transport_month = "Нет данных"
         context = dict(
             self.admin_site.each_context(request),
             total=total,
@@ -493,6 +516,19 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             top_clients=top_clients,
             month_labels=json.dumps(month_labels, ensure_ascii=False),
             month_counts=json.dumps(month_counts, ensure_ascii=False),
+            mean_days=mean_days,
+            mean_total_cost=mean_total_cost,
+            top_transports=json.dumps(top_transports, ensure_ascii=False),
+            sources=json.dumps(sources, ensure_ascii=False),
+            new_clients_months=json.dumps(new_clients_months, ensure_ascii=False),
+            new_clients_counts=json.dumps(new_clients_counts, ensure_ascii=False),
+            discount_percent=discount_percent,
+            discount_count=discount_count,
+            total_count=total,
+            no_discount_count=no_discount_count,
+            month_earned=month_earned,
+            month_count=month_count,
+            top_transport_month=top_transport_month,
             opts=self.model._meta,
             title='Аналитика по заявкам',
         )
@@ -713,9 +749,9 @@ class ClientAdmin(admin.ModelAdmin):
         top_clients = Client.objects.annotate(num=Count('rental_applications')).order_by('-num')[:10]
         # Динамика по месяцам (количество новых клиентов)
         months = []
-        now = datetime.date.today()
+        now = date.today()
         for i in range(11, -1, -1):
-            month = (now.replace(day=1) - datetime.timedelta(days=30*i)).replace(day=1)
+            month = (now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
             months.append(month)
         month_labels = [m.strftime('%Y-%m') for m in months]
         month_counts = [Client.objects.filter(created_at__year=m.year, created_at__month=m.month).count() for m in months]

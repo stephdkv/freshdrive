@@ -1,51 +1,135 @@
-{% extends "admin/base_site.html" %} {% load i18n %} {% load static %} {% block
-extrahead %} {{ block.super }}
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% load static %}
+
+{% block extrahead %}
+{{ block.super }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-{% endblock %} {% block content %}
+{% endblock %}
+
+{% block content %}
 <h1>Аналитика по заявкам</h1>
 <div style="margin-bottom: 20px">
   <strong>Всего заявок:</strong> {{ total }}<br />
   <strong>Сумма депозитов:</strong> {{ total_sum|default:0 }} ₽
 </div>
-<div>
-  <h3>Заявки по статусам:</h3>
-  <canvas
-    id="statusChart"
-    width="400"
-    height="180"
-    style="max-width: 400px"
-  ></canvas>
-  <script id="status-data" type="application/json">
-    {{ by_status|safe }}
-  </script>
-</div>
-<div style="margin-top: 40px">
-  <h3>Динамика заявок по месяцам</h3>
-  <canvas
-    id="monthChart"
-    width="400"
-    height="180"
-    style="max-width: 400px"
-  ></canvas>
-  <script id="month-labels" type="application/json">
-    {{ month_labels|safe }}
-  </script>
-  <script id="month-counts" type="application/json">
-    {{ month_counts|safe }}
-  </script>
-</div>
-<div style="margin-top: 40px">
-  <h3>Топ клиентов по количеству заявок</h3>
-  <ol>
-    {% for client in top_clients %}
-    <li>
-      {{ client.full_name }} ({{ client.phone_number }}) — {{ client.num }}
-      заявок
-    </li>
-    {% empty %}
-    <li>Нет данных</li>
-    {% endfor %}
-  </ol>
+
+<style>
+  .analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 32px;
+    align-items: stretch;
+    margin-bottom: 40px;
+  }
+  @media (min-width: 1200px) {
+    .analytics-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  .analytics-subblock {
+    padding: 20px 24px 20px 24px;
+    min-height: 70px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .analytics-subblock:last-child {
+    border-bottom: none;
+  }
+</style>
+<div class="analytics-grid">
+  <!-- Средняя длительность аренды и Средний чек (объединённый блок) -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 0; min-height: 0;">
+    <div class="analytics-subblock">
+      <h3 style="margin-top: 0;">Средняя длительность аренды</h3>
+      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ mean_days|floatformat:0|cut:",0" }} суток</div>
+    </div>
+    <div class="analytics-subblock">
+      <h3 style="margin-top: 0;">Средний чек</h3>
+      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; ">{{ mean_total_cost|floatformat:0 }} ₽</div>
+    </div>
+    <div class="analytics-subblock">
+      <h3 style="margin-top: 0;">Заработано в этом месяце</h3>
+      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; ">{{ month_earned|floatformat:0 }} ₽</div>
+    </div>
+    <div class="analytics-subblock">
+      <h3 style="margin-top: 0;">Заявок в этом месяце</h3>
+      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ month_count }}</div>
+    </div>
+    <div class="analytics-subblock">
+      <h3 style="margin-top: 0;">Топ транспорт месяца</h3>
+      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ top_transport_month }}</div>
+    </div>
+  </div>
+  <!-- Процент заявок со скидкой -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Заявки со скидкой</h3>
+    <div style="font-size: 2.2em; font-weight: bold; color: #ffc107; ">{{ discount_percent }}%</div>
+    <canvas id="discountPie" width="120" height="120"></canvas>
+  </div>
+  <!-- Топ-5 транспортов -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Топ-5 транспортов</h3>
+    <canvas id="topTransportsPie" width="180" height="180"></canvas>
+  </div>
+  <!-- Источники заявок -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Источники заявок</h3>
+    <canvas id="sourcesPie" width="180" height="180"></canvas>
+  </div>
+  <!-- Динамика новых клиентов -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Новые клиенты по месяцам</h3>
+    <canvas id="newClientsLine" width="180" height="120"></canvas>
+  </div>
+  <!-- Заявки по статусам -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Заявки по статусам</h3>
+    <canvas id="statusChart" width="400" height="180" style="max-width: 100%"></canvas>
+    <script id="status-data" type="application/json">
+      {{ by_status|safe }}
+    </script>
+  </div>
+  <!-- Динамика заявок по месяцам -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Динамика заявок по месяцам</h3>
+    <canvas id="monthChart" width="400" height="180" style="max-width: 100%"></canvas>
+    <script id="month-labels" type="application/json">
+      {{ month_labels|safe }}
+    </script>
+    <script id="month-counts" type="application/json">
+      {{ month_counts|safe }}
+    </script>
+  </div>
+  <!-- Топ клиентов по количеству заявок -->
+  <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
+    <h3 style="margin-top: 0;">Топ клиентов по количеству заявок</h3>
+    <table style="width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden;">
+      <thead>
+        <tr style="background: #f8f9fa;">
+          <th style="padding: 10px 16px; border-bottom: 1px solid #e0e0e0; text-align: left;">#</th>
+          <th style="padding: 10px 16px; border-bottom: 1px solid #e0e0e0; text-align: left;">ФИО</th>
+          <th style="padding: 10px 16px; border-bottom: 1px solid #e0e0e0; text-align: left;">Телефон</th>
+          <th style="padding: 10px 16px; border-bottom: 1px solid #e0e0e0; text-align: left;">Заявок</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for client in top_clients %}
+        <tr style="background-color: {% cycle '#fff' '#f6f8fa' %};">
+          <td style="padding: 8px 16px; border-bottom: 1px solid #f0f0f0;">{{ forloop.counter }}</td>
+          <td style="padding: 8px 16px; border-bottom: 1px solid #f0f0f0;">{{ client.full_name }}</td>
+          <td style="padding: 8px 16px; border-bottom: 1px solid #f0f0f0;">{{ client.phone_number }}</td>
+          <td style="padding: 8px 16px; border-bottom: 1px solid #f0f0f0; font-weight: bold; color: #28a745;">{{ client.num }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" style="padding: 12px; text-align: center; color: #888;">Нет данных</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 <script>
   // График по статусам
@@ -102,5 +186,64 @@ extrahead %} {{ block.super }}
       options: { responsive: true },
     });
   }
+  // Топ-5 транспортов
+  const topTransports = JSON.parse('{{ top_transports|escapejs }}');
+  const topTransportsLabels = topTransports.map(t => t.transport__name + ' ' + t.transport__model);
+  const topTransportsCounts = topTransports.map(t => t.num);
+  new Chart(document.getElementById('topTransportsPie').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: topTransportsLabels,
+      datasets: [{
+        data: topTransportsCounts,
+        backgroundColor: ["#007bff", "#28a745", "#ffc107", "#17a2b8", "#dc3545"]
+      }]
+    },
+    options: { responsive: true }
+  });
+  // Источники заявок
+  const sources = JSON.parse('{{ sources|escapejs }}');
+  const sourcesLabels = sources.map(s => s.how_did_you_find_us);
+  const sourcesCounts = sources.map(s => s.num);
+  new Chart(document.getElementById('sourcesPie').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: sourcesLabels,
+      datasets: [{
+        data: sourcesCounts,
+        backgroundColor: ["#007bff", "#28a745", "#ffc107", "#17a2b8", "#dc3545", "#6c757d"]
+      }]
+    },
+    options: { responsive: true }
+  });
+  // Динамика новых клиентов
+  const newClientsMonths = JSON.parse('{{ new_clients_months|escapejs }}');
+  const newClientsCounts = JSON.parse('{{ new_clients_counts|escapejs }}');
+  new Chart(document.getElementById('newClientsLine').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: newClientsMonths,
+      datasets: [{
+        label: 'Новые клиенты',
+        data: newClientsCounts,
+        borderColor: '#28a745',
+        backgroundColor: 'rgba(40,167,69,0.1)',
+        fill: true
+      }]
+    },
+    options: { responsive: true }
+  });
+  // Кольцевая диаграмма по скидкам
+  new Chart(document.getElementById('discountPie').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Со скидкой', 'Без скидки'],
+      datasets: [{
+        data: [{{ discount_count }}, {{ no_discount_count }}],
+        backgroundColor: ["#ffc107", "#e0e0e0"]
+      }]
+    },
+    options: { responsive: true }
+  });
 </script>
 {% endblock %}
