@@ -11,9 +11,11 @@
 <h1>Аналитика по заявкам</h1>
 <div style="margin-bottom: 20px">
   <strong>Всего заявок:</strong> {{ total }}<br />
-  <strong>Сумма депозитов:</strong> {{ total_sum|default:0 }} ₽
 </div>
-
+<div style="margin-top: 10px; font-size: 1.1em; color: #444;">
+  <div><b>Заработано в этом месяце:</b> {{ month_earned|floatformat:0 }} ₽</div>
+  <div><b>Заявок в этом месяце:</b> {{ month_count }}</div>
+</div>
 <style>
   .analytics-grid {
     display: grid;
@@ -27,47 +29,31 @@
       grid-template-columns: repeat(4, 1fr);
     }
   }
-  .analytics-subblock {
-    padding: 20px 24px 20px 24px;
-    min-height: 70px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    border-bottom: 1px solid #f0f0f0;
-  }
-  .analytics-subblock:last-child {
-    border-bottom: none;
-  }
 </style>
 <div class="analytics-grid">
   <!-- Средняя длительность аренды и Средний чек (объединённый блок) -->
   <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 0; min-height: 0;">
-    <div class="analytics-subblock">
+    <div style="padding: 24px 24px 12px 24px; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; align-items: center;">
       <h3 style="margin-top: 0;">Средняя длительность аренды</h3>
-      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ mean_days|floatformat:0|cut:",0" }} суток</div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; margin-bottom: 10px;">{{ mean_days|floatformat:0|cut:",0" }} суток</div>
     </div>
-    <div class="analytics-subblock">
+    <div style="padding: 24px 24px 12px 24px; display: flex; flex-direction: column; align-items: center;">
       <h3 style="margin-top: 0;">Средний чек</h3>
-      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; ">{{ mean_total_cost|floatformat:0 }} ₽</div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; margin-bottom: 10px;">{{ mean_total_cost|floatformat:0 }} ₽</div>
     </div>
-    <div class="analytics-subblock">
+    <div style="padding: 24px 24px 12px 24px; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; align-items: center;">
       <h3 style="margin-top: 0;">Заработано в этом месяце</h3>
-      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; ">{{ month_earned|floatformat:0 }} ₽</div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #28a745; margin-bottom: 10px;">{{ month_earned|floatformat:0 }} ₽</div>
     </div>
-    <div class="analytics-subblock">
+    <div style="padding: 24px 24px 12px 24px; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; align-items: center;">
       <h3 style="margin-top: 0;">Заявок в этом месяце</h3>
-      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ month_count }}</div>
-    </div>
-    <div class="analytics-subblock">
-      <h3 style="margin-top: 0;">Топ транспорт месяца</h3>
-      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; ">{{ top_transport_month }}</div>
+      <div style="font-size: 2.2em; font-weight: bold; color: #007bff; margin-bottom: 10px;">{{ month_count }}</div>
     </div>
   </div>
   <!-- Процент заявок со скидкой -->
   <div style="background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); padding: 24px; display: flex; flex-direction: column; align-items: center;">
     <h3 style="margin-top: 0;">Заявки со скидкой</h3>
-    <div style="font-size: 2.2em; font-weight: bold; color: #ffc107; ">{{ discount_percent }}%</div>
+    <div style="font-size: 2.2em; font-weight: bold; color: #ffc107; margin-bottom: 10px;">{{ discount_percent }}%</div>
     <canvas id="discountPie" width="120" height="120"></canvas>
   </div>
   <!-- Топ-5 транспортов -->

@@ -32,5 +32,4 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('rentals/', include('rentals.urls')),
     path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),
-    path('jet_api/', include('jet_django.urls')),
 ]

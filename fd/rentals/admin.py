@@ -8,7 +8,7 @@ from django.template.defaultfilters import date as _date
 from django.contrib.auth.models import Group, Permission, User
 from django.contrib.auth.admin import UserAdmin
 from django.core.exceptions import PermissionDenied
-from django.db.models import Sum, Q, Avg, Count
+from django.db.models import Sum, Q, Avg
 import io
 import os
 from datetime import datetime, date, timedelta
@@ -461,8 +461,15 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         else:
             mean_days = 0
         # 2. Средний чек
-        mean_total_cost = RentalApplication.objects.aggregate(avg_cost=Avg('original_total_cost'))['avg_cost']
-        if mean_total_cost is None:
+        all_apps_with_cost = RentalApplication.objects.exclude(rental_start_date__isnull=True).exclude(rental_end_date__isnull=True)
+        if all_apps_with_cost.exists():
+            costs_list = []
+            for app in all_apps_with_cost:
+                cost = app.calculate_total_cost()
+                if cost is not None and cost > 0:
+                    costs_list.append(cost)
+            mean_total_cost = round(sum(costs_list) / len(costs_list), 0) if costs_list else 0
+        else:
             mean_total_cost = 0
         # 3. Топ-5 транспортов
         top_transports = list(RentalApplication.objects.values('transport__name', 'transport__model').annotate(num=Count('id')).order_by('-num')[:5])
@@ -503,11 +510,6 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         )
         month_earned = month_apps.aggregate(total=models.Sum('original_total_cost'))['total'] or 0
         month_count = month_apps.count()
-        top_transport_month_query = month_apps.values('transport__name', 'transport__model').annotate(num=Count('id')).order_by('-num').first()
-        if top_transport_month_query:
-            top_transport_month = f"{top_transport_month_query['transport__name']} {top_transport_month_query['transport__model']}"
-        else:
-            top_transport_month = "Нет данных"
         context = dict(
             self.admin_site.each_context(request),
             total=total,
@@ -528,7 +530,6 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             no_discount_count=no_discount_count,
             month_earned=month_earned,
             month_count=month_count,
-            top_transport_month=top_transport_month,
             opts=self.model._meta,
             title='Аналитика по заявкам',
         )
