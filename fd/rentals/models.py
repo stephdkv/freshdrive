@@ -3,6 +3,8 @@ from phonenumber_field.modelfields import PhoneNumberField
 from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db.models import Q
+from django.contrib.auth.models import User
+from django.conf import settings
 
 # Варианты для поля "Откуда о нас узнали"
 HOW_DID_YOU_FIND_US_CHOICES = [
@@ -12,6 +14,11 @@ HOW_DID_YOU_FIND_US_CHOICES = [
     ("repeat_customer", "У вас брал услугу раньше / уже был клиентом"),
     ("catalog", "Нашли вас в каталоге / на картах (Google Maps, 2ГИС, Яндекс.Справочник)"),
     ("other", "Другое"),
+]
+
+CITY_CHOICES = [
+    ('sochi', 'Сочи'),
+    ('adler', 'Адлер'),
 ]
 
 class Client(models.Model):
@@ -30,6 +37,7 @@ class Client(models.Model):
         blank=True,
         help_text="Как клиент узнал о нас"
     )
+    city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
 
     def __str__(self):
         return f"{self.full_name} ({self.phone_number})"
@@ -51,6 +59,7 @@ class Transport(models.Model):
     price_3_6_days = models.DecimalField('Цена за 3-6 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
     price_7_30_days = models.DecimalField('Цена за 7-30 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
     price_30_plus_days = models.DecimalField('Цена от 30 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
+    city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
     
     def check_availability(self, start_date, end_date, exclude_booking_id=None):
         """
@@ -138,6 +147,15 @@ class RentalApplication(models.Model):
     created_at = models.DateTimeField('Дата создания', auto_now_add=True)
     updated_at = models.DateTimeField('Дата обновления', auto_now=True)
     original_total_cost = models.DecimalField('Исходная сумма аренды', max_digits=10, decimal_places=0, null=True, blank=True, help_text='Сумма аренды до досрочного возврата (для внутреннего пользования)')
+    city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        verbose_name='Менеджер',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_rental_applications'
+    )
   
     def clean(self):
         """Валидация заявки на аренду"""
@@ -363,6 +381,7 @@ class Calendar(models.Model):
         null=True,
         blank=True
     )
+    city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
 
     def __str__(self):
         return f"{self.transport} - {self.title} ({self.start.date()} - {self.end.date()})"
@@ -371,3 +390,14 @@ class Calendar(models.Model):
         verbose_name = "Событие календаря"
         verbose_name_plural = "События календаря"
         ordering = ['start'] 
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
+
+    def __str__(self):
+        return f"{self.user.username} ({self.get_city_display()})"
+
+    class Meta:
+        verbose_name = 'Профиль пользователя'
+        verbose_name_plural = 'Профили пользователей' 

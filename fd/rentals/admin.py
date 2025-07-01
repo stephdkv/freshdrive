@@ -113,13 +113,31 @@ class TransportAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        profile = getattr(request.user, 'profile', None)
+        if profile:
+            return qs.filter(city=profile.city)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                obj.city = profile.city
+        super().save_model(request, obj, form, change)
+
 @admin.register(RentalApplication)
 class RentalApplicationAdmin(admin.ModelAdmin):
     form = RentalApplicationForm
     list_display = ('get_colored_status', 'full_name', 'phone_number', 'transport', 'rental_start_date', 
                    'rental_end_date', 'rental_days_display', 'get_rate_type_display',
                    'daily_rate_display', 'get_discount_display', 'get_discount_amount_display',
-                   'get_security_deposit_display', 'get_total_cost_display', 'how_did_you_find_us')
+                   'get_security_deposit_display', 'get_total_cost_display', 'how_did_you_find_us',
+                   'manager_display',
+                   )
     list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us')
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
@@ -552,6 +570,38 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'rentals/js/rental_form.js',
         )
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        profile = getattr(request.user, 'profile', None)
+        if profile:
+            return qs.filter(city=profile.city)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.created_by:
+            obj.created_by = request.user
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                obj.city = profile.city
+        super().save_model(request, obj, form, change)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "transport" and not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            from .models import Transport
+            if profile:
+                kwargs["queryset"] = Transport.objects.filter(city=profile.city)
+            else:
+                kwargs["queryset"] = Transport.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def manager_display(self, obj):
+        return obj.created_by.get_full_name() if obj.created_by else (obj.created_by.username if obj.created_by else '-')
+    manager_display.short_description = 'Менеджер'
+
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
     list_display = ('full_name', 'phone_number', 'get_passport_info', 'get_rental_count', 'get_last_rental_date', 'created_at')
@@ -769,14 +819,21 @@ class ClientAdmin(admin.ModelAdmin):
         from django.shortcuts import render
         return render(request, 'admin/rentals/client/analytics.html', context)
 
-    class Media:
-        css = {
-            'all': (
-                'admin/css/forms.css',
-                'admin/css/widgets.css',
-                'rentals/css/admin.css',
-            )
-        }
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        profile = getattr(request.user, 'profile', None)
+        if profile:
+            return qs.filter(city=profile.city)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                obj.city = profile.city
+        super().save_model(request, obj, form, change)
 
 @admin.register(Calendar)
 class CalendarAdmin(admin.ModelAdmin):
@@ -903,6 +960,22 @@ class CalendarAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         extra_context['show_calendar_link'] = True
         return super().changelist_view(request, extra_context=extra_context)
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        profile = getattr(request.user, 'profile', None)
+        if profile:
+            return qs.filter(city=profile.city)
+        return qs.none()
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                obj.city = profile.city
+        super().save_model(request, obj, form, change)
 
 @staff_member_required
 def return_calendar_view(request):
