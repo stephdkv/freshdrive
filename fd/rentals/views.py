@@ -42,11 +42,11 @@ def get_available_transport(request):
                 'message': 'Неверный формат даты'
             })
         
-        # Получаем ID занятого транспорта, исключая отмененные заявки
+        # Получаем ID занятого транспорта, исключая отмененные и завершенные заявки
         booked_transport_ids = RentalApplication.objects.filter(
             Q(rental_start_date__lte=end_date) & 
             Q(rental_end_date__gte=start_date) &
-            ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
+            ~Q(status__in=[RentalApplication.STATUS_CANCELLED, RentalApplication.STATUS_COMPLETED])  # Исключаем отмененные и завершенные заявки
         ).values_list('transport_id', flat=True)
         
         logger.info(f"Booked transport IDs: {list(booked_transport_ids)}")

@@ -42,11 +42,11 @@ class RentalApplicationForm(forms.ModelForm):
 
             if start_date and end_date:
                 # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
-                # Исключаем отмененные заявки и текущую заявку
+                # Исключаем отмененные и завершенные заявки
                 booked_transport_ids = RentalApplication.objects.filter(
                     Q(rental_start_date__lte=end_date) & 
                     Q(rental_end_date__gte=start_date) &
-                    ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
+                    ~Q(status__in=[RentalApplication.STATUS_CANCELLED, RentalApplication.STATUS_COMPLETED])  # Исключаем отмененные и завершенные заявки
                 ).exclude(id=self.instance.id).values_list('transport_id', flat=True)
                 
                 # Фильтруем queryset для поля transport, включая текущий транспорт
@@ -60,11 +60,11 @@ class RentalApplicationForm(forms.ModelForm):
             # Для новой заявки используем стандартную логику
             if start_date and end_date:
                 # Получаем ID всех транспортных средств, у которых есть пересекающиеся брони
-                # Исключаем отмененные заявки
+                # Исключаем отмененные и завершенные заявки
                 booked_transport_ids = RentalApplication.objects.filter(
                     Q(rental_start_date__lte=end_date) & 
                     Q(rental_end_date__gte=start_date) &
-                    ~Q(status=RentalApplication.STATUS_CANCELLED)  # Исключаем отмененные заявки
+                    ~Q(status__in=[RentalApplication.STATUS_CANCELLED, RentalApplication.STATUS_COMPLETED])  # Исключаем отмененные и завершенные заявки
                 ).values_list('transport_id', flat=True)
                 
                 self.fields['transport'].queryset = Transport.objects.exclude(
