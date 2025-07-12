@@ -19,12 +19,18 @@ from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 import json
 from django.db import models
+from .models import UserProfile
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
 
-@admin.register(User)
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    can_delete = False
+    verbose_name_plural = 'Профиль пользователя'
+
 class CustomUserAdmin(UserAdmin):
+    inlines = (UserProfileInline,)
     list_display = ('username', 'email', 'first_name', 'last_name', 'is_staff', 'get_groups')
     list_filter = ('is_staff', 'is_superuser', 'groups')
     
@@ -60,6 +66,22 @@ class CustomUserAdmin(UserAdmin):
                 return tuple(base) + extra
             return extra
         return base
+
+    def save_formset(self, request, form, formset, change):
+        """Сохраняем инлайн-формы"""
+        instances = formset.save(commit=False)
+        for instance in instances:
+            instance.save()
+        formset.save_m2m()
+        super().save_formset(request, form, formset, change)
+
+# Удаляем стандартную регистрацию User, если есть
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+# Регистрируем User с новым админом
+admin.site.register(User, CustomUserAdmin)
 
 # Отменяем регистрацию стандартного GroupAdmin, так как он нам не нужен
 # admin.site.unregister(Group)
@@ -580,8 +602,12 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return qs.none()
 
     def save_model(self, request, obj, form, change):
-        if not change and not obj.created_by:
+        # Всегда заполняем created_by при создании новой заявки
+        if not change:  # Если это новая заявка
             obj.created_by = request.user
+        elif not obj.created_by:  # Если редактируем существующую без created_by
+            obj.created_by = request.user
+            
         if not request.user.is_superuser:
             profile = getattr(request.user, 'profile', None)
             if profile:
@@ -599,7 +625,12 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def manager_display(self, obj):
-        return obj.created_by.get_full_name() if obj.created_by else (obj.created_by.username if obj.created_by else '-')
+        if obj.created_by:
+            if obj.created_by.first_name and obj.created_by.last_name:
+                return f"{obj.created_by.first_name} {obj.created_by.last_name}"
+            else:
+                return obj.created_by.username
+        return '-'
     manager_display.short_description = 'Менеджер'
 
 @admin.register(Client)
