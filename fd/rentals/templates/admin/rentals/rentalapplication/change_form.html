@@ -1,0 +1,11 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools %}
+    {{ block.super }}
+    {% if original %}
+        <li style="margin-top: 10px; margin-bottom: 10px; ">
+            <a href="/admin/rentals/rentalapplication/add/?full_name={{ original.full_name|urlencode }}&phone_number={{ original.phone_number|urlencode }}&how_did_you_find_us={{ original.how_did_you_find_us|urlencode }}&passport_number={{ original.passport_number|urlencode }}&passport_issued_by={{ original.passport_issued_by|urlencode }}&passport_issue_date={{ original.passport_issue_date|date:'Y-m-d' }}&client_id={{ original.client.id }}" class="button addlink" style="background:#28a745; color:white; margin-left:10px; margin-top: 5px; margin-bottom: 5px;">Новая заявка</a>
+        </li>
+    {% endif %}
+{% endblock %} 

@@ -103,12 +103,14 @@ class RentalApplication(models.Model):
     STATUS_ACTIVE = 'active'
     STATUS_COMPLETED = 'completed'
     STATUS_CANCELLED = 'cancelled'
+    STATUS_OVERDUE = 'overdue'
     
     STATUS_CHOICES = [
         (STATUS_RESERVED, 'Резерв'),
         (STATUS_ACTIVE, 'Активная'),
         (STATUS_COMPLETED, 'Завершенная'),
         (STATUS_CANCELLED, 'Отмененная'),
+        (STATUS_OVERDUE, 'Просрочена'),
     ]
 
     DISCOUNT_CHOICES = [
@@ -156,6 +158,7 @@ class RentalApplication(models.Model):
         blank=True,
         related_name='created_rental_applications'
     )
+    activated_at = models.DateTimeField(null=True, blank=True, verbose_name="Время активации")
   
     def clean(self):
         """Валидация заявки на аренду"""
@@ -241,7 +244,8 @@ class RentalApplication(models.Model):
                 'title': f"Аренда: {self.full_name}",
                 'start': datetime.combine(self.rental_start_date, datetime.min.time()),
                 'end': datetime.combine(self.rental_end_date, datetime.max.time()),
-                'status': self.status
+                'status': self.status,
+                'city': self.city
             }
         )
         
@@ -251,6 +255,7 @@ class RentalApplication(models.Model):
             calendar_event.start = datetime.combine(self.rental_start_date, datetime.min.time())
             calendar_event.end = datetime.combine(self.rental_end_date, datetime.max.time())
             calendar_event.status = self.status
+            calendar_event.city = self.city
             calendar_event.save()
 
     def delete(self, *args, **kwargs):
@@ -360,6 +365,18 @@ class RentalApplication(models.Model):
         self.status = self.STATUS_COMPLETED
         self.save()
         return True
+
+    @property
+    def is_overdue(self):
+        from django.utils import timezone
+        import pytz
+        if self.status == self.STATUS_ACTIVE and self.rental_end_date and self.activated_at:
+            tz = pytz.timezone('Europe/Moscow')
+            # Дата окончания + время активации (местное)
+            end_dt = datetime.combine(self.rental_end_date, self.activated_at.astimezone(tz).timetz())
+            now = timezone.localtime(timezone.now(), tz)
+            return now > end_dt
+        return False
 
 class Calendar(models.Model):
     transport = models.ForeignKey(Transport, verbose_name='Транспорт', on_delete=models.CASCADE, related_name='calendar_events')

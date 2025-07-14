@@ -109,6 +109,23 @@ def create_manager_group():
         # Добавляем все разрешения в группу
         group.permissions.set(list(transport_permissions) + list(rental_permissions))
 
+class OverdueStatusFilter(admin.SimpleListFilter):
+    title = 'Просрочена'
+    parameter_name = 'overdue'
+
+    def lookups(self, request, model_admin):
+        return (
+            ('yes', 'Только просроченные'),
+            ('no', 'Без просроченных'),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == 'yes':
+            return queryset.filter(status='active').filter(rental_end_date__lt=datetime.now().date())
+        if self.value() == 'no':
+            return queryset.exclude(status='active', rental_end_date__lt=datetime.now().date())
+        return queryset
+
 @admin.register(Transport)
 class TransportAdmin(admin.ModelAdmin):
     list_display = ('number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number',
@@ -135,15 +152,6 @@ class TransportAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        profile = getattr(request.user, 'profile', None)
-        if profile:
-            return qs.filter(city=profile.city)
-        return qs.none()
-
     def save_model(self, request, obj, form, change):
         if not request.user.is_superuser:
             profile = getattr(request.user, 'profile', None)
@@ -160,7 +168,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
                    'get_security_deposit_display', 'get_total_cost_display', 'how_did_you_find_us',
                    'manager_display',
                    )
-    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us')
+    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us', OverdueStatusFilter)
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
@@ -223,18 +231,41 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     get_security_deposit_display.short_description = 'Залог'
     
     def make_active(self, request, queryset):
+        from django.utils import timezone
         for application in queryset:
-            application.change_status(RentalApplication.STATUS_ACTIVE)
+            if request.user.is_superuser or application.can_change_status_to(application.STATUS_ACTIVE):
+                application.status = application.STATUS_ACTIVE
+                application.activated_at = timezone.now()
+                application.save()
+                self.message_user(request, f'Заявка "{application}" переведена в статус "Активная"', level='success')
+            else:
+                old_status_display = dict(application.STATUS_CHOICES).get(application.status, application.status)
+                new_status_display = dict(application.STATUS_CHOICES).get(application.STATUS_ACTIVE, application.STATUS_ACTIVE)
+                self.message_user(request, f'Нельзя сменить статус заявки "{application}" с "{old_status_display}" на "{new_status_display}"', level='error')
     make_active.short_description = "Сделать активными"
 
     def make_completed(self, request, queryset):
         for application in queryset:
-            application.change_status(RentalApplication.STATUS_COMPLETED)
+            if request.user.is_superuser or application.can_change_status_to(application.STATUS_COMPLETED):
+                application.status = application.STATUS_COMPLETED
+                application.save()
+                self.message_user(request, f'Заявка "{application}" переведена в статус "Завершенная"', level='success')
+            else:
+                old_status_display = dict(application.STATUS_CHOICES).get(application.status, application.status)
+                new_status_display = dict(application.STATUS_CHOICES).get(application.STATUS_COMPLETED, application.STATUS_COMPLETED)
+                self.message_user(request, f'Нельзя сменить статус заявки "{application}" с "{old_status_display}" на "{new_status_display}"', level='error')
     make_completed.short_description = "Отметить как завершенные"
 
     def make_cancelled(self, request, queryset):
         for application in queryset:
-            application.change_status(RentalApplication.STATUS_CANCELLED)
+            if request.user.is_superuser or application.can_change_status_to(application.STATUS_CANCELLED):
+                application.status = application.STATUS_CANCELLED
+                application.save()
+                self.message_user(request, f'Заявка "{application}" переведена в статус "Отмененная"', level='success')
+            else:
+                old_status_display = dict(application.STATUS_CHOICES).get(application.status, application.status)
+                new_status_display = dict(application.STATUS_CHOICES).get(application.STATUS_CANCELLED, application.STATUS_CANCELLED)
+                self.message_user(request, f'Нельзя сменить статус заявки "{application}" с "{old_status_display}" на "{new_status_display}"', level='error')
     make_cancelled.short_description = "Отметить как отмененные"
 
     def complete_early_and_print_addendum(self, request, queryset):
@@ -430,14 +461,24 @@ class RentalApplicationAdmin(admin.ModelAdmin):
             'active': 'status-active',
             'completed': 'status-completed',
             'cancelled': 'status-cancelled',
+            'overdue': 'status-overdue',
         }
+        # Виртуальный статус 'Просрочена'
+        if obj.is_overdue:
+            return format_html(
+                '<span class="status-badge {}" style="background:#dc3545; color:white;">{}</span>',
+                status_classes['overdue'],
+                'Просрочена'
+            )
         return format_html(
             '<span class="status-badge {}">{}</span>',
-            status_classes[obj.status],
+            status_classes.get(obj.status, ''),
             obj.get_status_display()
         )
     get_colored_status.short_description = 'Статус'
     get_colored_status.admin_order_field = 'status'
+
+    list_filter = ('status', 'rental_start_date', 'rental_end_date', 'created_at', 'discount', 'how_did_you_find_us', OverdueStatusFilter)
 
     def changelist_view(self, request, extra_context=None):
         # Get the filtered queryset
@@ -602,17 +643,39 @@ class RentalApplicationAdmin(admin.ModelAdmin):
         return qs.none()
 
     def save_model(self, request, obj, form, change):
-        # Всегда заполняем created_by при создании новой заявки
-        if not change:  # Если это новая заявка
+        from django.utils import timezone
+        obj._status_error = False
+        if change and 'status' in form.changed_data:
+            old_obj = type(obj).objects.get(pk=obj.pk)
+            old_status = old_obj.status
+            new_status = form.cleaned_data['status']
+            # Получаем русские названия статусов
+            old_status_display = dict(obj.STATUS_CHOICES).get(old_status, old_status)
+            new_status_display = dict(obj.STATUS_CHOICES).get(new_status, new_status)
+            if not request.user.is_superuser:
+                if not old_obj.can_change_status_to(new_status):
+                    self.message_user(request, f'Нельзя сменить статус с "{old_status_display}" на "{new_status_display}"', level='error')
+                    obj._status_error = True
+                    return
+            # Если переводим в Активная — сохраняем время активации
+            if new_status == obj.STATUS_ACTIVE:
+                obj.activated_at = timezone.now()
+        if not change:
             obj.created_by = request.user
-        elif not obj.created_by:  # Если редактируем существующую без created_by
-            obj.created_by = request.user
-            
-        if not request.user.is_superuser:
             profile = getattr(request.user, 'profile', None)
             if profile:
                 obj.city = profile.city
+            if obj.status == obj.STATUS_ACTIVE:
+                obj.activated_at = timezone.now()
+        elif not obj.created_by:
+            obj.created_by = request.user
         super().save_model(request, obj, form, change)
+
+    def response_change(self, request, obj):
+        if hasattr(obj, '_status_error') and obj._status_error:
+            from django.http import HttpResponseRedirect
+            return HttpResponseRedirect(request.path)
+        return super().response_change(request, obj)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "transport" and not request.user.is_superuser:
@@ -632,6 +695,14 @@ class RentalApplicationAdmin(admin.ModelAdmin):
                 return obj.created_by.username
         return '-'
     manager_display.short_description = 'Менеджер'
+
+    def get_form(self, request, obj=None, **kwargs):
+        Form = super().get_form(request, obj, **kwargs)
+        class ModelFormWithRequest(Form):
+            def __new__(cls, *args, **kw):
+                kw['request'] = request
+                return Form(*args, **kw)
+        return ModelFormWithRequest
 
 @admin.register(Client)
 class ClientAdmin(admin.ModelAdmin):
@@ -851,19 +922,9 @@ class ClientAdmin(admin.ModelAdmin):
         return render(request, 'admin/rentals/client/analytics.html', context)
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
-        profile = getattr(request.user, 'profile', None)
-        if profile:
-            return qs.filter(city=profile.city)
-        return qs.none()
+        return super().get_queryset(request)
 
     def save_model(self, request, obj, form, change):
-        if not request.user.is_superuser:
-            profile = getattr(request.user, 'profile', None)
-            if profile:
-                obj.city = profile.city
         super().save_model(request, obj, form, change)
 
 @admin.register(Calendar)
@@ -875,11 +936,20 @@ class CalendarAdmin(admin.ModelAdmin):
 
     @staticmethod
     def calendar_view(request):
+        from .models import Transport, Calendar
         transports = Transport.objects.all()
-        
+        events = Calendar.objects.all()
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                transports = transports.filter(city=profile.city)
+                events = events.filter(city=profile.city)
+            else:
+                transports = Transport.objects.none()
+                events = Calendar.objects.none()
         # Получаем статистику по статусам заявок
         from django.db.models import Count
-        status_stats = RentalApplication.objects.values('status').annotate(
+        status_stats = events.values('status').annotate(
             count=Count('id')
         ).order_by('status')
         
@@ -921,7 +991,15 @@ class CalendarAdmin(admin.ModelAdmin):
             else:
                 # Фильтруем по одному транспорту
                 events = Calendar.objects.filter(transport_id=transport_id)
-            
+
+            # Фильтрация по городу менеджера
+            if not request.user.is_superuser:
+                profile = getattr(request.user, 'profile', None)
+                if profile:
+                    events = events.filter(city=profile.city)
+                else:
+                    events = events.none()
+
             if start:
                 try:
                     # FullCalendar отправляет даты в формате YYYY-MM-DD
@@ -998,20 +1076,25 @@ class CalendarAdmin(admin.ModelAdmin):
             return qs
         profile = getattr(request.user, 'profile', None)
         if profile:
-            return qs.filter(city=profile.city)
+            return qs.filter(city=profile.city)  # исправлено: было transport__city
         return qs.none()
 
     def save_model(self, request, obj, form, change):
-        if not request.user.is_superuser:
-            profile = getattr(request.user, 'profile', None)
-            if profile:
-                obj.city = profile.city
         super().save_model(request, obj, form, change)
 
 @staff_member_required
 def return_calendar_view(request):
-    from .models import Transport, Calendar
+    from .models import Calendar, Transport
     transports = Transport.objects.all()
+    events = Calendar.objects.all()
+    if not request.user.is_superuser:
+        profile = getattr(request.user, 'profile', None)
+        if profile:
+            transports = transports.filter(city=profile.city)
+            events = events.filter(city=profile.city)
+        else:
+            transports = Transport.objects.none()
+            events = Calendar.objects.none()
     context = {
         'transports': transports,
         'title': 'Календарь сдачи транспорта',
@@ -1030,6 +1113,15 @@ def return_calendar_events(request):
         events = Calendar.objects.all()
         if transport_id and transport_id != 'all':
             events = events.filter(transport_id=transport_id)
+
+        # Фильтрация по городу менеджера
+        if not request.user.is_superuser:
+            profile = getattr(request.user, 'profile', None)
+            if profile:
+                events = events.filter(city=profile.city)
+            else:
+                events = events.none()
+
         if start:
             from datetime import datetime
             start_date = datetime.strptime(start.split('T')[0], '%Y-%m-%d')
@@ -1048,11 +1140,16 @@ def return_calendar_events(request):
                 RentalApplication.STATUS_CANCELLED: '#dc3545',
             }.get(event.status, '#6c757d')
             title = f"Возврат: №{event.transport.number} - {event.transport.name} {event.transport.model} ({event.title})"
+            # Используем дату окончания аренды из заявки, если есть
+            if event.rental_application and event.rental_application.rental_end_date:
+                return_date = event.rental_application.rental_end_date
+            else:
+                return_date = event.end.date()
             events_data.append({
                 'id': event.rental_application.id if event.rental_application else event.id,
                 'title': title,
-                'start': event.end.isoformat(),
-                'end': event.end.isoformat(),
+                'start': return_date.isoformat(),
+                'end': return_date.isoformat(),
                 'allDay': True,
                 'color': color,
                 'url': f'/admin/rentals/rentalapplication/{event.rental_application.id}/change/' if event.rental_application else None,

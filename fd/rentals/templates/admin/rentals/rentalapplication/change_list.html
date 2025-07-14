@@ -16,9 +16,11 @@
 {% endblock %}
 
 {% block object-tools-items %}
+    {% if request.user.is_superuser %}
     <li>
         <a href="/admin/rentals/rentalapplication/analytics/" class="btn">Аналитика</a>
     </li>
+    {% endif %}
     {{ block.super }}
 {% endblock %}
 

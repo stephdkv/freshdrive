@@ -9,7 +9,20 @@ class RentalApplicationForm(forms.ModelForm):
     rental_end_date = forms.DateField(widget=AdminDateWidget(), help_text="Дата окончания аренды", label='Дата окончания аренды')
     
     def __init__(self, *args, **kwargs):
+        request = kwargs.pop('request', None)
         super().__init__(*args, **kwargs)
+        
+        # Автозаполнение из GET-параметров
+        if request and not self.instance.pk:
+            for field in ['full_name', 'phone_number', 'how_did_you_find_us', 'passport_number', 'passport_issued_by', 'passport_issue_date', 'client_id']:
+                value = request.GET.get(field)
+                if value:
+                    if field == 'client_id':
+                        self.fields['client'].initial = value
+                    elif field == 'passport_issue_date':
+                        self.fields[field].initial = value  # date widget примет YYYY-MM-DD
+                    else:
+                        self.fields[field].initial = value
         
         # Получаем выбранные даты из данных формы
         start_date = None
