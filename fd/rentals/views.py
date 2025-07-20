@@ -1,7 +1,7 @@
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 from django.views.decorators.csrf import csrf_exempt
-from .models import Transport, RentalApplication
+from .models import Transport, RentalApplication, Client
 from django.db.models import Q
 from datetime import datetime
 import logging
@@ -80,3 +80,26 @@ def get_available_transport(request):
             'status': 'error',
             'message': str(e)
         }) 
+
+@require_GET
+@csrf_exempt
+def get_client_info(request):
+    """View для получения информации о клиенте по ID"""
+    client_id = request.GET.get('client_id')
+    if not client_id:
+        return JsonResponse({'status': 'error', 'message': 'Не передан client_id'})
+    try:
+        client = Client.objects.get(id=client_id)
+        data = {
+            'full_name': client.full_name or '',
+            'phone_number': str(client.phone_number) if client.phone_number else '',
+            'passport_number': client.passport_number or '',
+            'passport_issued_by': client.passport_issued_by or '',
+            'passport_issue_date': client.passport_issue_date.strftime('%Y-%m-%d') if client.passport_issue_date else '',
+            'how_did_you_find_us': client.how_did_you_find_us or '',
+        }
+        return JsonResponse({'status': 'success', 'data': data})
+    except Client.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Клиент не найден'})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}) 

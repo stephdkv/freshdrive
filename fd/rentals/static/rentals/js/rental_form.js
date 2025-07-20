@@ -165,5 +165,51 @@
 
     // Инициализируем отслеживание изменений
     setupDateChangeTracking();
+
+    // --- Автозаполнение данных клиента при выборе ---
+    const clientField = $('select[name="client"]');
+    const fullNameField = $('input[name="full_name"]');
+    const phoneField = $('input[name="phone_number"]');
+    const passportNumberField = $('input[name="passport_number"]');
+    const passportIssuedByField = $('input[name="passport_issued_by"]');
+    const passportIssueDateField = $('input[name="passport_issue_date"]');
+    const howDidYouFindUsField = $('select[name="how_did_you_find_us"]');
+
+    function autofillClientData(clientId) {
+      if (!clientId) return;
+      $.ajax({
+        url: '/rentals/get-client-info/',
+        method: 'GET',
+        data: { client_id: clientId },
+        success: function(response) {
+          if (response.status === 'success' && response.data) {
+            const data = response.data;
+            if (fullNameField.length) fullNameField.val(data.full_name).trigger('change');
+            if (phoneField.length) phoneField.val(data.phone_number).trigger('change');
+            if (passportNumberField.length) passportNumberField.val(data.passport_number).trigger('change');
+            if (passportIssuedByField.length) passportIssuedByField.val(data.passport_issued_by).trigger('change');
+            if (passportIssueDateField.length) passportIssueDateField.val(data.passport_issue_date).trigger('change');
+            if (howDidYouFindUsField.length && data.how_did_you_find_us) {
+              howDidYouFindUsField.val(data.how_did_you_find_us).trigger('change');
+            }
+          }
+        },
+        error: function(xhr, status, error) {
+          console.log('Ошибка при получении данных клиента:', status, error);
+        }
+      });
+    }
+
+    if (clientField.length) {
+      clientField.on('change', function() {
+        const clientId = $(this).val();
+        autofillClientData(clientId);
+      });
+      // Для select2
+      clientField.on('select2:select', function(e) {
+        const clientId = $(this).val();
+        autofillClientData(clientId);
+      });
+    }
   });
 })(django.jQuery);

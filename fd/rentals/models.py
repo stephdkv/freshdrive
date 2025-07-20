@@ -370,12 +370,14 @@ class RentalApplication(models.Model):
     def is_overdue(self):
         from django.utils import timezone
         import pytz
-        if self.status == self.STATUS_ACTIVE and self.rental_end_date and self.activated_at:
+        from datetime import timedelta
+        if self.status == self.STATUS_ACTIVE and self.rental_end_date:
             tz = pytz.timezone('Europe/Moscow')
-            # Дата окончания + время активации (местное)
-            end_dt = datetime.combine(self.rental_end_date, self.activated_at.astimezone(tz).timetz())
+            # Просроченной считается с 00:00 следующего дня после rental_end_date
+            overdue_dt = datetime.combine(self.rental_end_date, datetime.min.time()) + timedelta(days=1)
+            overdue_dt = tz.localize(overdue_dt)
             now = timezone.localtime(timezone.now(), tz)
-            return now > end_dt
+            return now >= overdue_dt
         return False
 
 class Calendar(models.Model):
