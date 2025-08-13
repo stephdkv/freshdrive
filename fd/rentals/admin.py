@@ -172,7 +172,7 @@ class RentalApplicationAdmin(admin.ModelAdmin):
     search_fields = ('full_name', 'phone_number', 'passport_number', 
                     'transport__name', 'transport__model')
     date_hierarchy = 'rental_start_date'
-    list_per_page = 12
+    list_per_page = 30
     
     def get_fieldsets(self, request, obj=None):
         base_fields = (
