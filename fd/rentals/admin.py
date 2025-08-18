@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.conf import settings
-from .models import Transport, RentalApplication, Client, Calendar
+from .models import Transport, RentalApplication, Client, Calendar, Advantages, TransportImage, Blog
 from .forms import RentalApplicationForm
 from django.http import HttpResponse, JsonResponse
 from docx import Document
@@ -19,7 +19,9 @@ from urllib.parse import quote
 from django.contrib.admin.views.decorators import staff_member_required
 import json
 from django.db import models
+from django_summernote.admin import SummernoteModelAdmin
 from .models import UserProfile
+from .models import Review
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -126,17 +128,35 @@ class OverdueStatusFilter(admin.SimpleListFilter):
             return queryset.exclude(status='active', rental_end_date__lt=datetime.now().date())
         return queryset
 
+class TransportImageInline(admin.TabularInline):
+    model = TransportImage
+    extra = 1
+
 @admin.register(Transport)
-class TransportAdmin(admin.ModelAdmin):
-    list_display = ('number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number',
-                   'price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days')
-    search_fields = ('number', 'name', 'model', 'registration_number', 'color', 'vin_number')
-    list_filter = ('year',)
+class TransportAdmin(SummernoteModelAdmin):
+    summernote_fields = ('description',)
+    inlines = [TransportImageInline]
+    list_display = (
+        'number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number',
+        'price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days', 'city', 'category', 'transmission'
+    )
+    search_fields = ('number', 'name', 'model', 'registration_number', 'color', 'vin_number', 'slug')
+    list_filter = ('year', 'city', 'category', 'transmission', 'condition')
+    prepopulated_fields = {'slug': ('name',)}
     ordering = ('number',)
-    
+
     fieldsets = (
         ('Основная информация', {
-            'fields': ('number', 'name', 'model', 'year', 'color', 'registration_number', 'vin_number')
+            'fields': ('number', 'name', 'slug', 'model', 'year', 'color', 'registration_number', 'vin_number', 'city', 'category')
+        }),
+        ('Технические характеристики', {
+            'fields': ('power_hp', 'transmission', 'condition', 'mileage_km', 'engine_volume_l')
+        }),
+        ('Изображения', {
+            'fields': ('main_image', 'thumbnail_image')
+        }),
+        ('Описание', {
+            'fields': ('description',)
         }),
         ('Цены', {
             'fields': ('price_per_day', 'price_3_6_days', 'price_7_30_days', 'price_30_plus_days')
@@ -1162,3 +1182,73 @@ def return_calendar_events(request):
         return JsonResponse(events_data, safe=False)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+@admin.register(Advantages)
+class AdvantagesAdmin(SummernoteModelAdmin):
+    summernote_fields = ('text',)
+    list_display = ('number', 'name', 'slug', 'created_at')
+    list_display_links = ('name',)
+    list_editable = ('number',)
+    list_filter = ('created_at',)
+    search_fields = ('name', 'text')
+    prepopulated_fields = {'slug': ('name',)}
+    ordering = ('number',)
+    
+    fieldsets = (
+        ('Основная информация', {
+            'fields': ('name', 'slug', 'number', 'text')
+        }),
+        ('Медиа', {
+            'fields': ('image',)
+        }),
+        ('Метаданные', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at')
+
+@admin.register(Blog)
+class BlogAdmin(SummernoteModelAdmin):
+    summernote_fields = ('text',)
+    list_display = ('title', 'category', 'created_at')
+    search_fields = ('title', 'category', 'text')
+    list_filter = ('category', 'created_at')
+    prepopulated_fields = {'slug': ('title',)}
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Основное', {
+            'fields': ('title', 'slug', 'category')
+        }),
+        ('Медиа', {
+            'fields': ('main_image', 'extra_image')
+        }),
+        ('Текст', {
+            'fields': ('text',)
+        }),
+        ('Метаданные', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    search_fields = ('name', 'text')
+    prepopulated_fields = {'slug': ('name',)}
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Основное', {
+            'fields': ('name', 'slug')
+        }),
+        ('Контент', {
+            'fields': ('text', 'image')
+        }),
+        ('Метаданные', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )

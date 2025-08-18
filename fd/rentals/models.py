@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.contrib.auth.models import User
 from django.conf import settings
+from slugify import slugify as slugify_translit
 
 # Варианты для поля "Откуда о нас узнали"
 HOW_DID_YOU_FIND_US_CHOICES = [
@@ -19,6 +20,20 @@ HOW_DID_YOU_FIND_US_CHOICES = [
 CITY_CHOICES = [
     ('sochi', 'Сочи'),
     ('adler', 'Адлер'),
+]
+
+TRANSMISSION_CHOICES = [
+    ('automatic', 'Автомат'),
+    ('manual', 'Механика'),
+    ('cvt', 'Вариатор'),
+    ('other', 'Другая'),
+]
+
+CONDITION_CHOICES = [
+    ('excellent', 'Отличное'),
+    ('good', 'Хорошее'),
+    ('fair', 'Удовлетворительное'),
+    ('poor', 'Плохое'),
 ]
 
 class Client(models.Model):
@@ -60,6 +75,35 @@ class Transport(models.Model):
     price_7_30_days = models.DecimalField('Цена за 7-30 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
     price_30_plus_days = models.DecimalField('Цена от 30 суток (за сутки)', max_digits=10, decimal_places=2, default=0)
     city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
+    
+    # Новые поля
+    slug = models.SlugField('Слаг', max_length=200, unique=True, blank=True, null=True)
+    category = models.CharField('Категория', max_length=100, null=True, blank=True)
+    power_hp = models.PositiveIntegerField('Мощность (л.с.)', null=True, blank=True)
+    transmission = models.CharField('Трансмиссия', max_length=16, choices=TRANSMISSION_CHOICES, null=True, blank=True)
+    condition = models.CharField('Состояние', max_length=16, choices=CONDITION_CHOICES, default='good')
+    mileage_km = models.PositiveIntegerField('Пробег (км)', null=True, blank=True)
+    engine_volume_l = models.DecimalField('Объем двигателя (л)', max_digits=4, decimal_places=1, null=True, blank=True)
+    main_image = models.ImageField('Основное изображение', upload_to='transports/', null=True, blank=True)
+    thumbnail_image = models.ImageField('Мини изображение', upload_to='transports/thumbnails/', null=True, blank=True)
+    description = models.TextField('Описание', null=True, blank=True)
+    
+    def _generate_unique_slug(self):
+        base_slug = slugify_translit(self.name or '')
+        slug = base_slug
+        if not slug:
+            slug = f"transport-{self.pk or ''}".strip('-')
+        unique_suffix = 1
+        Model = self.__class__
+        while Model.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+            unique_suffix += 1
+            slug = f"{base_slug}-{unique_suffix}"
+        return slug
+    
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._generate_unique_slug()
+        super().save(*args, **kwargs)
     
     def check_availability(self, start_date, end_date, exclude_booking_id=None):
         """
@@ -410,6 +454,23 @@ class Calendar(models.Model):
         verbose_name_plural = "События календаря"
         ordering = ['start'] 
 
+class Advantages(models.Model):
+    name = models.CharField('Имя', max_length=200)
+    slug = models.SlugField('Слаг', max_length=200, unique=True)
+    number = models.PositiveIntegerField('Номер', help_text="Порядковый номер преимущества")
+    image = models.ImageField('Изображение', upload_to='advantages/', null=True, blank=True)
+    text = models.TextField('Текст', help_text="Описание преимущества")
+    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
+    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+
+    def __str__(self):
+        return f"{self.number}. {self.name}"
+
+    class Meta:
+        verbose_name = "Преимущество"
+        verbose_name_plural = "Преимущества"
+        ordering = ['number']
+
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     city = models.CharField('Город', max_length=16, choices=CITY_CHOICES, default='sochi')
@@ -420,3 +481,78 @@ class UserProfile(models.Model):
     class Meta:
         verbose_name = 'Профиль пользователя'
         verbose_name_plural = 'Профили пользователей' 
+
+class TransportImage(models.Model):
+    transport = models.ForeignKey(Transport, on_delete=models.CASCADE, related_name='images', verbose_name='Транспорт')
+    image = models.ImageField('Доп. изображение', upload_to='transports/gallery/')
+
+    def __str__(self):
+        return f"Фото для {self.transport}"
+
+    class Meta:
+        verbose_name = 'Изображение транспорта'
+        verbose_name_plural = 'Изображения транспорта' 
+
+class Blog(models.Model):
+    title = models.CharField('Название', max_length=200)
+    slug = models.SlugField('Слаг', max_length=200, unique=True, blank=True, null=True)
+    category = models.CharField('Категория', max_length=100, null=True, blank=True)
+    main_image = models.ImageField('Основное изображение', upload_to='blog/', null=True, blank=True)
+    extra_image = models.ImageField('Доп. изображение', upload_to='blog/extra/', null=True, blank=True)
+    text = models.TextField('Текст', null=True, blank=True)
+    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
+    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+
+    def __str__(self):
+        return self.title
+
+    def _generate_unique_slug(self):
+        base_slug = slugify_translit(self.title or '')
+        slug = base_slug or 'blog'
+        unique_suffix = 1
+        Model = self.__class__
+        while Model.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+            unique_suffix += 1
+            slug = f"{base_slug}-{unique_suffix}" if base_slug else f"blog-{unique_suffix}"
+        return slug
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._generate_unique_slug()
+        super().save(*args, **kwargs)
+
+    class Meta:
+        verbose_name = 'Статья блога'
+        verbose_name_plural = 'Статьи блога'
+        ordering = ['-created_at'] 
+
+class Review(models.Model):
+    name = models.CharField('Имя', max_length=200)
+    slug = models.SlugField('Слаг', max_length=200, unique=True, blank=True, null=True)
+    text = models.TextField('Текст')
+    image = models.ImageField('Изображение', upload_to='reviews/', null=True, blank=True)
+    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
+    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    def _generate_unique_slug(self):
+        base_slug = slugify_translit(self.name or '')
+        slug = base_slug or 'review'
+        unique_suffix = 1
+        Model = self.__class__
+        while Model.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+            unique_suffix += 1
+            slug = f"{base_slug}-{unique_suffix}" if base_slug else f"review-{unique_suffix}"
+        return slug
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._generate_unique_slug()
+        super().save(*args, **kwargs)
+
+    class Meta:
+        verbose_name = 'Отзыв'
+        verbose_name_plural = 'Отзывы'
+        ordering = ['-created_at'] 

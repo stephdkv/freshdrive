@@ -18,6 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth.models import User, Group
 from django.views.i18n import JavaScriptCatalog
+from django.conf import settings
+from django.conf.urls.static import static
 
 # admin.site.unregister(User)
 # admin.site.unregister(Group)
@@ -29,7 +31,8 @@ admin.site.index_title = 'Добро пожаловать в портал аре
 
 urlpatterns = [
     path('jet/', include('jet.urls', 'jet')),  # Django Jet URLs
+    path('summernote/', include('django_summernote.urls')),
     path('admin/', admin.site.urls),
     path('rentals/', include('rentals.urls')),
     path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
