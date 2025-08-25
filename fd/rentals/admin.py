@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.conf import settings
-from .models import Transport, RentalApplication, Client, Calendar, Advantages, TransportImage, Blog
+from .models import Transport, RentalApplication, Client, Calendar, TransportImage
+from website.models import Advantages, Blog, Review, TransportSale
 from .forms import RentalApplicationForm
 from django.http import HttpResponse, JsonResponse
 from docx import Document
@@ -20,8 +21,8 @@ from django.contrib.admin.views.decorators import staff_member_required
 import json
 from django.db import models
 from django_summernote.admin import SummernoteModelAdmin
+from django_summernote.models import Attachment
 from .models import UserProfile
-from .models import Review
 
 # Отменяем регистрацию стандартного UserAdmin
 admin.site.unregister(User)
@@ -80,6 +81,11 @@ class CustomUserAdmin(UserAdmin):
 # Удаляем стандартную регистрацию User, если есть
 try:
     admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+# Скрываем django-summernote из админки (убираем модель вложений)
+try:
+    admin.site.unregister(Attachment)
 except admin.sites.NotRegistered:
     pass
 # Регистрируем User с новым админом
@@ -1246,6 +1252,53 @@ class ReviewAdmin(admin.ModelAdmin):
         }),
         ('Контент', {
             'fields': ('text', 'image')
+        }),
+        ('Метаданные', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+@admin.register(TransportSale)
+class TransportSaleAdmin(admin.ModelAdmin):
+    list_display = ('name', 'price', 'color', 'drive', 'max_speed_kmh', 'created_at')
+    search_fields = (
+        'name', 'color', 'drive', 'engine_mark_actual', 'engine_mark_cover',
+        'transmission', 'brake_system', 'optics'
+    )
+    list_filter = ('color', 'drive', 'transmission', 'created_at')
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        ('Основное', {
+            'fields': ('name', 'price', 'color')
+        }),
+        ('Характеристики', {
+            'fields': (
+                'drive',
+                'dimensions_l_w_h_mm',
+                'seat_height_mm',
+                'handlebar_height_mm',
+                'axle_size_mm',
+                'engine_displacement_cc',
+                'engine_power_hp_kw_rpm',
+                'engine_mark_actual',
+                'engine_mark_cover',
+                'cooling',
+                'start',
+                'fuel_supply',
+                'transmission',
+                'gears_count',
+                'tank_volume_l',
+                'wheel_front',
+                'wheel_rear',
+                'max_speed_kmh',
+                'front_brake_disc',
+                'rear_brake_disc',
+                'brake_system',
+                'optics',
+                'dashboard',
+            )
         }),
         ('Метаданные', {
             'fields': ('created_at', 'updated_at'),

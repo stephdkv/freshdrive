@@ -454,22 +454,7 @@ class Calendar(models.Model):
         verbose_name_plural = "События календаря"
         ordering = ['start'] 
 
-class Advantages(models.Model):
-    name = models.CharField('Имя', max_length=200)
-    slug = models.SlugField('Слаг', max_length=200, unique=True)
-    number = models.PositiveIntegerField('Номер', help_text="Порядковый номер преимущества")
-    image = models.ImageField('Изображение', upload_to='advantages/', null=True, blank=True)
-    text = models.TextField('Текст', help_text="Описание преимущества")
-    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
-    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
-
-    def __str__(self):
-        return f"{self.number}. {self.name}"
-
-    class Meta:
-        verbose_name = "Преимущество"
-        verbose_name_plural = "Преимущества"
-        ordering = ['number']
+from website.models import Advantages
 
 class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -493,66 +478,8 @@ class TransportImage(models.Model):
         verbose_name = 'Изображение транспорта'
         verbose_name_plural = 'Изображения транспорта' 
 
-class Blog(models.Model):
-    title = models.CharField('Название', max_length=200)
-    slug = models.SlugField('Слаг', max_length=200, unique=True, blank=True, null=True)
-    category = models.CharField('Категория', max_length=100, null=True, blank=True)
-    main_image = models.ImageField('Основное изображение', upload_to='blog/', null=True, blank=True)
-    extra_image = models.ImageField('Доп. изображение', upload_to='blog/extra/', null=True, blank=True)
-    text = models.TextField('Текст', null=True, blank=True)
-    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
-    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
+from website.models import Blog
 
-    def __str__(self):
-        return self.title
+from website.models import Review
 
-    def _generate_unique_slug(self):
-        base_slug = slugify_translit(self.title or '')
-        slug = base_slug or 'blog'
-        unique_suffix = 1
-        Model = self.__class__
-        while Model.objects.filter(slug=slug).exclude(pk=self.pk).exists():
-            unique_suffix += 1
-            slug = f"{base_slug}-{unique_suffix}" if base_slug else f"blog-{unique_suffix}"
-        return slug
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = self._generate_unique_slug()
-        super().save(*args, **kwargs)
-
-    class Meta:
-        verbose_name = 'Статья блога'
-        verbose_name_plural = 'Статьи блога'
-        ordering = ['-created_at'] 
-
-class Review(models.Model):
-    name = models.CharField('Имя', max_length=200)
-    slug = models.SlugField('Слаг', max_length=200, unique=True, blank=True, null=True)
-    text = models.TextField('Текст')
-    image = models.ImageField('Изображение', upload_to='reviews/', null=True, blank=True)
-    created_at = models.DateTimeField('Дата создания', auto_now_add=True)
-    updated_at = models.DateTimeField('Дата обновления', auto_now=True)
-
-    def __str__(self):
-        return self.name
-
-    def _generate_unique_slug(self):
-        base_slug = slugify_translit(self.name or '')
-        slug = base_slug or 'review'
-        unique_suffix = 1
-        Model = self.__class__
-        while Model.objects.filter(slug=slug).exclude(pk=self.pk).exists():
-            unique_suffix += 1
-            slug = f"{base_slug}-{unique_suffix}" if base_slug else f"review-{unique_suffix}"
-        return slug
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = self._generate_unique_slug()
-        super().save(*args, **kwargs)
-
-    class Meta:
-        verbose_name = 'Отзыв'
-        verbose_name_plural = 'Отзывы'
-        ordering = ['-created_at'] 
+from website.models import TransportSale

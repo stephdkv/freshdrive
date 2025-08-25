@@ -24,7 +24,6 @@ from django.conf.urls.static import static
 # admin.site.unregister(User)
 # admin.site.unregister(Group)
 
-
 admin.site.site_header = 'Администрирование транспортной аренды'
 admin.site.site_title = 'Портал администрирования аренды транспорта'
 admin.site.index_title = 'Добро пожаловать в портал аренды транспорта'
