@@ -15,11 +15,13 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.contrib.auth.models import User, Group
 from django.views.i18n import JavaScriptCatalog
 from django.conf import settings
 from django.conf.urls.static import static
+from django.views.static import serve
+import os
 
 # admin.site.unregister(User)
 # admin.site.unregister(Group)
@@ -29,9 +31,24 @@ admin.site.site_title = 'Портал администрирования аре�
 admin.site.index_title = 'Добро пожаловать в портал аренды транспорта'
 
 urlpatterns = [
+    path('', include('website.urls', namespace='website')),
     path('jet/', include('jet.urls', 'jet')),  # Django Jet URLs
     path('summernote/', include('django_summernote.urls')),
     path('admin/', admin.site.urls),
     path('rentals/', include('rentals.urls')),
     path('jsi18n/', JavaScriptCatalog.as_view(), name='javascript-catalog'),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Serve Webflow-style static paths in development without editing templates
+if settings.DEBUG:
+    urlpatterns += [
+        re_path(r'^css/(?P<path>.*)$', serve, {
+            'document_root': os.path.join(settings.BASE_DIR, 'website', 'static', 'website', 'css'),
+        }),
+        re_path(r'^js/(?P<path>.*)$', serve, {
+            'document_root': os.path.join(settings.BASE_DIR, 'website', 'static', 'website', 'js'),
+        }),
+        re_path(r'^images/(?P<path>.*)$', serve, {
+            'document_root': os.path.join(settings.BASE_DIR, 'website', 'static', 'website', 'images'),
+        }),
+    ]
